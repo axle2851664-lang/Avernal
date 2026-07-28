@@ -1,0 +1,1250 @@
+"use client";
+
+import { motion } from "framer-motion";
+
+export default function Home() {
+  return (
+    <main className="min-h-screen bg-[#0B0B0B] text-white overflow-hidden">
+
+      {/* Navbar */}
+      <nav className="fixed top-0 left-0 right-0 z-50 
+      flex items-center justify-between px-8 py-6 
+      backdrop-blur-md bg-black/30">
+
+        <h1 className="text-3xl font-bold tracking-wide">
+          Aver<span className="text-[#D62828]">nal</span>
+        </h1>
+
+        <div className="hidden md:flex gap-8 text-gray-300">
+          <a href="#services" className="hover:text-white transition">
+            Services
+          </a>
+
+          <a href="#about" className="hover:text-white transition">
+            About
+          </a>
+
+          <a href="#contact" className="hover:text-white transition">
+            Contact
+          </a>
+        </div>
+
+        <button
+        className="
+        bg-[#D62828]
+        px-5 py-3
+        rounded-xl
+        font-semibold
+        hover:scale-105
+        transition">
+          Get Started
+        </button>
+
+      </nav>
+
+
+
+      {/* Hero Section */}
+
+      <section className="
+      relative
+      min-h-screen
+      flex
+      items-center
+      justify-center
+      px-6
+      ">
+
+
+        {/* Animated Glow */}
+
+        <motion.div
+        animate={{
+          scale:[1,1.2,1],
+          opacity:[0.3,0.6,0.3]
+        }}
+
+        transition={{
+          duration:6,
+          repeat:Infinity
+        }}
+
+        className="
+        absolute
+        w-[500px]
+        h-[500px]
+        bg-[#D62828]
+        rounded-full
+        blur-[160px]
+        "
+        />
+
+
+
+        <div className="
+        relative
+        max-w-5xl
+        text-center
+        ">
+
+          <motion.h1
+
+          initial={{
+            opacity:0,
+            y:40
+          }}
+
+          animate={{
+            opacity:1,
+            y:0
+          }}
+
+          transition={{
+            duration:1
+          }}
+
+          className="
+          text-5xl
+          md:text-7xl
+          font-bold
+          leading-tight
+          "
+          >
+
+          Building The 
+          <span className="text-[#D62828]">
+            {" "}Future
+          </span>
+          {" "}Of Business.
+
+
+          </motion.h1>
+
+
+
+          <motion.p
+
+          initial={{
+            opacity:0
+          }}
+
+          animate={{
+            opacity:1
+          }}
+
+          transition={{
+            delay:0.5,
+            duration:1
+          }}
+
+          className="
+          mt-8
+          text-lg
+          md:text-xl
+          text-gray-400
+          max-w-3xl
+          mx-auto
+          "
+          >
+
+          Avernal creates modern websites, 
+          AI solutions, and digital experiences 
+          designed to help businesses grow.
+
+          </motion.p>
+
+
+
+          <motion.div
+
+          initial={{
+            opacity:0,
+            y:20
+          }}
+
+          animate={{
+            opacity:1,
+            y:0
+          }}
+
+          transition={{
+            delay:0.8
+          }}
+
+          className="
+          mt-10
+          flex
+          justify-center
+          gap-5
+          flex-wrap
+          "
+
+          >
+
+
+          <button
+          className="
+          bg-[#D62828]
+          px-8
+          py-4
+          rounded-2xl
+          font-bold
+          text-lg
+          hover:scale-105
+          transition
+          "
+          >
+            Start A Project
+          </button>
+
+
+
+          <button
+          className="
+          border
+          border-gray-700
+          px-8
+          py-4
+          rounded-2xl
+          font-bold
+          text-lg
+          hover:bg-white
+          hover:text-black
+          transition
+          "
+          >
+            Learn More
+          </button>
+
+
+          </motion.div>
+
+
+        </div>
+
+
+      </section>
+
+
+
+      {/* Stats Preview */}
+
+      <section className="
+      px-6
+      pb-24
+      ">
+
+      <div className="
+      max-w-5xl
+      mx-auto
+      grid
+      md:grid-cols-3
+      gap-6
+      ">
+
+
+      <div className="
+      bg-[#151515]
+      p-8
+      rounded-3xl
+      border
+      border-gray-800
+      ">
+
+      <h2 className="
+      text-4xl
+      font-bold
+      text-[#D62828]
+      ">
+      Fast
+      </h2>
+
+      <p className="
+      text-gray-400
+      mt-3
+      ">
+      High performance websites built with modern technology.
+      </p>
+
+      </div>
+
+
+
+      <div className="
+      bg-[#151515]
+      p-8
+      rounded-3xl
+      border
+      border-gray-800
+      ">
+
+      <h2 className="
+      text-4xl
+      font-bold
+      text-[#D62828]
+      ">
+      Smart
+      </h2>
+
+      <p className="
+      text-gray-400
+      mt-3
+      ">
+      AI-powered solutions for the future of business.
+      </p>
+
+      </div>
+
+
+
+
+      <div className="
+      bg-[#151515]
+      p-8
+      rounded-3xl
+      border
+      border-gray-800
+      ">
+
+      <h2 className="
+      text-4xl
+      font-bold
+      text-[#D62828]
+      ">
+      Premium
+      </h2>
+
+      <p className="
+      text-gray-400
+      mt-3
+      ">
+      Professional designs built to impress customers.
+      </p>
+
+      </div>
+
+
+      </div>
+
+      </section>
+
+
+
+    </main>
+  );
+}
+{/* SERVICES SECTION */}
+
+<section 
+id="services"
+className="
+px-6
+py-24
+bg-[#0B0B0B]
+"
+>
+
+<div className="
+max-w-6xl
+mx-auto
+">
+
+<motion.h2
+
+initial={{opacity:0,y:30}}
+whileInView={{opacity:1,y:0}}
+transition={{duration:0.7}}
+
+className="
+text-5xl
+font-bold
+text-center
+"
+>
+
+Our 
+<span className="text-[#D62828]">
+Services
+</span>
+
+</motion.h2>
+
+
+<p className="
+text-gray-400
+text-center
+mt-5
+max-w-2xl
+mx-auto
+">
+
+Innovative digital solutions designed to help
+businesses grow, compete, and succeed.
+
+</p>
+
+
+
+<div className="
+grid
+md:grid-cols-2
+lg:grid-cols-4
+gap-6
+mt-14
+">
+
+
+{[
+{
+title:"Website Development",
+text:"High-performance websites designed with modern technology."
+},
+
+{
+title:"AI Solutions",
+text:"Smart artificial intelligence tools built for the future."
+},
+
+{
+title:"Brand Identity",
+text:"Professional branding that makes businesses memorable."
+},
+
+{
+title:"Digital Commerce",
+text:"Online experiences that help businesses sell and grow."
+}
+
+].map((service,index)=>(
+
+
+<motion.div
+
+key={index}
+
+initial={{
+opacity:0,
+y:40
+}}
+
+whileInView={{
+opacity:1,
+y:0
+}}
+
+transition={{
+delay:index * .15
+}}
+
+whileHover={{
+scale:1.05
+}}
+
+className="
+bg-[#151515]
+border
+border-gray-800
+rounded-3xl
+p-8
+hover:border-[#D62828]
+transition
+"
+
+>
+
+
+<div className="
+w-12
+h-12
+rounded-xl
+bg-[#D62828]
+mb-6
+"
+></div>
+
+
+<h3 className="
+text-xl
+font-bold
+">
+
+{service.title}
+
+</h3>
+
+
+<p className="
+text-gray-400
+mt-4
+">
+
+{service.text}
+
+</p>
+
+
+</motion.div>
+
+
+))}
+
+
+</div>
+
+
+</div>
+
+</section>
+
+
+
+
+
+
+{/* ABOUT SECTION */}
+
+
+<section
+
+id="about"
+
+className="
+px-6
+py-24
+bg-[#111111]
+"
+
+>
+
+
+<div className="
+max-w-5xl
+mx-auto
+grid
+md:grid-cols-2
+gap-12
+items-center
+">
+
+
+<motion.div
+
+initial={{
+opacity:0,
+x:-40
+}}
+
+whileInView={{
+opacity:1,
+x:0
+}}
+
+>
+
+
+<h2 className="
+text-5xl
+font-bold
+">
+
+The Future
+Of 
+<span className="
+text-[#D62828]
+">
+Avernal
+</span>
+
+</h2>
+
+
+<p className="
+text-gray-400
+mt-6
+leading-relaxed
+">
+
+Avernal is a technology-focused company
+built around innovation, design, and growth.
+
+Our mission is to create powerful digital
+experiences that help businesses adapt
+to the future.
+
+</p>
+
+
+<p className="
+text-gray-400
+mt-5
+leading-relaxed
+">
+
+From websites to artificial intelligence,
+Avernal combines creativity and technology
+to build solutions that matter.
+
+</p>
+
+
+</motion.div>
+
+
+
+
+<motion.div
+
+initial={{
+opacity:0,
+scale:.8
+}}
+
+whileInView={{
+opacity:1,
+scale:1
+}}
+
+transition={{
+duration:.8
+}}
+
+className="
+h-80
+rounded-3xl
+bg-gradient-to-br
+from-[#D62828]
+to-black
+flex
+items-center
+justify-center
+"
+
+>
+
+
+<h3 className="
+text-4xl
+font-bold
+">
+
+AVERNAL
+
+</h3>
+
+
+</motion.div>
+
+
+</div>
+
+
+</section>
+
+
+
+
+
+
+
+
+{/* WHY CHOOSE US */}
+
+
+
+<section
+
+className="
+px-6
+py-24
+"
+
+>
+
+
+<div className="
+max-w-6xl
+mx-auto
+">
+
+
+<h2 className="
+text-center
+text-5xl
+font-bold
+">
+
+Why Choose 
+<span className="
+text-[#D62828]
+">
+Avernal
+</span>
+
+</h2>
+
+
+
+<div className="
+grid
+md:grid-cols-3
+gap-6
+mt-14
+">
+
+
+{[
+"Modern Technology",
+"Premium Design",
+"Built For Growth",
+"Mobile Optimized",
+"Fast Performance",
+"AI Powered"
+].map((item,index)=>(
+
+
+<motion.div
+
+key={index}
+
+whileHover={{
+y:-10
+}}
+
+className="
+bg-[#151515]
+p-8
+rounded-3xl
+border
+border-gray-800
+"
+
+>
+
+
+<h3 className="
+text-xl
+font-bold
+">
+
+✓ {item}
+
+</h3>
+
+
+<p className="
+text-gray-400
+mt-3
+">
+
+Designed to deliver a better
+digital experience.
+
+</p>
+
+
+</motion.div>
+
+
+))}
+
+
+
+</div>
+
+
+</div>
+
+
+</section>
+{/* PRICING SECTION */}
+
+<section className="
+px-6
+py-24
+bg-[#111111]
+">
+
+<div className="
+max-w-6xl
+mx-auto
+">
+
+<h2 className="
+text-5xl
+font-bold
+text-center
+">
+
+Simple
+<span className="text-[#D62828]">
+ Pricing
+</span>
+
+</h2>
+
+
+<p className="
+text-center
+text-gray-400
+mt-5
+">
+
+Flexible solutions designed for businesses of all sizes.
+
+</p>
+
+
+
+<div className="
+grid
+md:grid-cols-3
+gap-8
+mt-14
+">
+
+
+{[
+{
+name:"Starter",
+price:"$250",
+features:[
+"Basic Website",
+"Mobile Design",
+"Contact Form"
+]
+},
+
+{
+name:"Professional",
+price:"$500",
+features:[
+"Custom Website",
+"SEO Setup",
+"Premium Design"
+]
+},
+
+{
+name:"Enterprise",
+price:"Custom",
+features:[
+"Advanced Solutions",
+"AI Integration",
+"Long-Term Support"
+]
+}
+
+].map((plan,index)=>(
+
+
+<motion.div
+
+key={index}
+
+whileHover={{
+scale:1.05
+}}
+
+className="
+bg-[#151515]
+border
+border-gray-800
+rounded-3xl
+p-8
+"
+
+>
+
+
+<h3 className="
+text-2xl
+font-bold
+">
+
+{plan.name}
+
+</h3>
+
+
+<h4 className="
+text-4xl
+font-bold
+text-[#D62828]
+mt-5
+">
+
+{plan.price}
+
+</h4>
+
+
+<ul className="
+mt-8
+space-y-4
+text-gray-300
+">
+
+{plan.features.map((feature,i)=>(
+
+<li key={i}>
+✓ {feature}
+</li>
+
+))}
+
+</ul>
+
+
+
+<button className="
+mt-8
+w-full
+bg-[#D62828]
+py-3
+rounded-xl
+font-bold
+hover:scale-105
+transition
+">
+
+Choose Plan
+
+</button>
+
+
+</motion.div>
+
+
+))}
+
+
+</div>
+
+
+</div>
+
+</section>
+
+
+
+
+
+
+
+{/* FAQ SECTION */}
+
+<section className="
+px-6
+py-24
+">
+
+
+<div className="
+max-w-4xl
+mx-auto
+">
+
+
+<h2 className="
+text-5xl
+font-bold
+text-center
+">
+
+Frequently Asked
+<span className="
+text-[#D62828]
+">
+ Questions
+</span>
+
+</h2>
+
+
+
+<div className="
+mt-12
+space-y-5
+">
+
+
+{[
+[
+"What is Avernal?",
+"Avernal is a technology company creating digital solutions for modern businesses."
+],
+
+[
+"Do you build custom websites?",
+"Yes. Every project can be designed around the client's needs."
+],
+
+[
+"Does Avernal use AI?",
+"Yes. AI solutions are part of our future technology vision."
+]
+
+].map((faq,index)=>(
+
+
+<div
+
+key={index}
+
+className="
+bg-[#151515]
+border
+border-gray-800
+rounded-2xl
+p-6
+"
+
+>
+
+<h3 className="
+font-bold
+text-xl
+">
+
+{faq[0]}
+
+</h3>
+
+
+<p className="
+text-gray-400
+mt-3
+">
+
+{faq[1]}
+
+</p>
+
+
+</div>
+
+
+))}
+
+
+</div>
+
+
+</div>
+
+
+</section>
+
+
+
+
+
+
+
+{/* CONTACT SECTION */}
+
+
+<section
+
+id="contact"
+
+className="
+px-6
+py-24
+bg-[#111111]
+"
+
+
+>
+
+
+<div className="
+max-w-4xl
+mx-auto
+text-center
+">
+
+
+<h2 className="
+text-5xl
+font-bold
+">
+
+Let's Build
+<span className="
+text-[#D62828]
+">
+ Together
+</span>
+
+</h2>
+
+
+<p className="
+text-gray-400
+mt-5
+">
+
+Have a project idea?
+Contact Avernal today.
+
+</p>
+
+
+
+<form className="
+mt-12
+grid
+gap-5
+">
+
+
+<input
+
+placeholder="Name"
+
+className="
+bg-[#151515]
+border
+border-gray-800
+rounded-xl
+p-4
+outline-none
+"
+
+/>
+
+
+<input
+
+placeholder="Email"
+
+className="
+bg-[#151515]
+border
+border-gray-800
+rounded-xl
+p-4
+outline-none
+"
+
+/>
+
+
+<input
+
+placeholder="Business Name"
+
+className="
+bg-[#151515]
+border
+border-gray-800
+rounded-xl
+p-4
+outline-none
+"
+
+/>
+
+
+<textarea
+
+placeholder="Message"
+
+rows={5}
+
+className="
+bg-[#151515]
+border
+border-gray-800
+rounded-xl
+p-4
+outline-none
+"
+
+/>
+
+
+
+<button
+
+className="
+bg-[#D62828]
+rounded-xl
+py-4
+font-bold
+hover:scale-105
+transition
+"
+
+>
+
+Send Message
+
+</button>
+
+
+</form>
+
+
+</div>
+
+
+</section>
+
+
+
+
+
+
+
+{/* FOOTER */}
+
+
+<footer className="
+border-t
+border-gray-800
+px-6
+py-10
+">
+
+
+<div className="
+max-w-6xl
+mx-auto
+flex
+flex-col
+md:flex-row
+justify-between
+gap-5
+">
+
+
+<h2 className="
+text-3xl
+font-bold
+">
+
+Aver<span className="
+text-[#D62828]
+">
+nal
+</span>
+
+</h2>
+
+
+
+<p className="
+text-gray-500
+">
+
+© 2026 Avernal. All rights reserved.
+
+</p>
+
+
+</div>
+
+
+</footer>
