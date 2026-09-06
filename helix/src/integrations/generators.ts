@@ -21,6 +21,26 @@ export interface GenerationResult {
 // The server runs from dist/, but tsc does not emit the .py files; they stay in src/.
 const scriptDir = join(__dirname, '..', '..', 'src', 'integrations');
 
+/**
+ * The generators print a JSON error as their last line of stderr, but the model
+ * libraries emit pages of deprecation warnings to the same stream. Return just
+ * the reported error so the cause is not buried; fall back to raw stderr.
+ */
+function pythonError(stderr: string): string | undefined {
+  const lines = stderr.trimEnd().split('\n');
+  const last = lines[lines.length - 1];
+
+  if (last !== undefined && last.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(last) as { error?: unknown };
+      if (typeof parsed.error === 'string') return parsed.error;
+    } catch {
+      // Not the JSON line after all; fall through to the raw output.
+    }
+  }
+  return stderr.trim() || undefined;
+}
+
 function spawnPython(scriptName: string, args: string[]): Promise<GenerationResult> {
   return new Promise((resolve, reject) => {
     const scriptPath = join(scriptDir, scriptName);
@@ -45,7 +65,7 @@ function spawnPython(scriptName: string, args: string[]): Promise<GenerationResu
           reject(new Error(`Failed to parse output: ${stdout}`));
         }
       } else {
-        reject(new Error(stderr || `Process exited with code ${code}`));
+        reject(new Error(pythonError(stderr) ?? `Process exited with code ${code}`));
       }
     });
 
