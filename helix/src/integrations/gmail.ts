@@ -1,5 +1,4 @@
 import { OAuth2Client } from 'google-auth-library';
-import { gmail_v1 } from 'googleapis';
 
 export interface GmailConfig {
   clientId: string;
@@ -20,7 +19,6 @@ export interface Email {
 
 export class GmailSync {
   private auth: OAuth2Client;
-  private gmail: gmail_v1.Gmail | null = null;
 
   constructor(config: GmailConfig) {
     this.auth = new OAuth2Client(config.clientId, config.clientSecret, config.redirectUrl);
@@ -39,17 +37,20 @@ export class GmailSync {
     return tokens;
   }
 
-  async setAccessToken(accessToken: string, refreshToken?: string) {
-    this.auth.setCredentials({
+  async setAccessToken(accessToken: string, refreshToken: string | null = null) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const creds: any = {
       access_token: accessToken,
-      refresh_token: refreshToken,
-    });
+      refresh_token: refreshToken ?? null,
+    };
+    this.auth.setCredentials(creds);
   }
 
   async fetchEmails(query = 'is:important', maxResults = 10): Promise<Email[]> {
     try {
       const { google } = await import('googleapis');
-      const gmail = google.gmail({ version: 'v1', auth: this.auth });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const gmail = (google.gmail as any)({ version: 'v1', auth: this.auth });
 
       const listRes = await gmail.users.messages.list({
         userId: 'me',
@@ -73,7 +74,11 @@ export class GmailSync {
           if (!payload) continue;
 
           const headers = payload.headers || [];
-          const getHeader = (name: string) => headers.find((h) => h.name === name)?.value || '';
+          const getHeader = (name: string): string => {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const h = headers.find((hdr: any) => hdr.name === name);
+            return h?.value || '';
+          };
 
           let body = '';
           if (payload.parts) {
@@ -87,6 +92,9 @@ export class GmailSync {
             body = Buffer.from(payload.body.data, 'base64').toString();
           }
 
+          const internalDate = fullMsg.data.internalDate || '0';
+          const labelIds = fullMsg.data.labelIds || [];
+
           emails.push({
             id: msg.id,
             from: getHeader('From'),
@@ -94,8 +102,8 @@ export class GmailSync {
             subject: getHeader('Subject'),
             snippet: fullMsg.data.snippet || '',
             body: body.substring(0, 500),
-            timestamp: parseInt(fullMsg.data.internalDate || '0'),
-            labels: fullMsg.data.labelIds || [],
+            timestamp: parseInt(internalDate, 10),
+            labels: labelIds,
           });
         } catch (e) {
           console.error(`Failed to fetch message ${msg.id}:`, e);
