@@ -1,0 +1,20 @@
+{
+  "name": "helix-galaxy-core",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Knowledge-galaxy core for Helix - staged here until the Helix source is reachable",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "verify": "npm run typecheck && npm run test"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "vitest": "4.1.11"
+  }
+}
