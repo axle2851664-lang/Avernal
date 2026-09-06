@@ -43,7 +43,31 @@ curl http://localhost:3000/health
 
 If the port is taken, the server exits with a message; set `PORT` to use another.
 
-## Step 3: Generate Images
+## Step 3: Open the generator
+
+Go to **http://localhost:3000** in a browser. The server hosts the generator UI
+itself: type a prompt, pick image or video, and the result renders on the page.
+
+Use this in preference to driving the API from a page hosted elsewhere. The UI
+and the API share an origin here, so no CORS or private-network rules apply —
+which removes the most common reason the buttons appear to do nothing.
+
+### Driving it from the Helix Galaxy UI instead
+
+The Galaxy UI is served from another origin, so the server must be told to
+accept it. `https://claude.ai` is allowed by default. If your requests are
+still blocked, the server console prints the exact origin it rejected and the
+command to permit it:
+
+```
+Blocked cross-origin request from https://example.origin.
+To allow it: ALLOWED_ORIGINS="https://example.origin" npm run server
+```
+
+Only add origins you trust. This server holds your Gmail and YouTube tokens,
+and any origin on the list can call every endpoint.
+
+## Step 4: Generate Images (API)
 
 ### Generate an image from a text prompt:
 
@@ -69,6 +93,7 @@ curl -X POST http://localhost:3000/generate/image \
 {
   "success": true,
   "path": "generated_images/image_42.png",
+  "url": "/generated_images/image_42.png",
   "filename": "image_42.png",
   "prompt": "a beautiful sunset over mountains",
   "seed": 42,
@@ -78,7 +103,7 @@ curl -X POST http://localhost:3000/generate/image \
 
 Generated images are saved to `generated_images/` directory.
 
-## Step 4: Generate Videos
+## Step 5: Generate Videos (API)
 
 ### Generate an animated video from a text prompt:
 
@@ -104,6 +129,7 @@ curl -X POST http://localhost:3000/generate/video \
 {
   "success": true,
   "path": "generated_videos/video_42.gif",
+  "url": "/generated_videos/video_42.gif",
   "filename": "video_42.gif",
   "prompt": "a camera panning over a beautiful landscape",
   "frames": 8,

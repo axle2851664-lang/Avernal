@@ -1,5 +1,7 @@
 import express from 'express';
 import type { Request, Response } from 'express';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 import { GmailSync, type Email } from '../integrations/gmail.js';
 import { YouTubeSync, type Video } from '../integrations/youtube.js';
 import { generateImage, generateVideo } from '../integrations/generators.js';
@@ -51,6 +53,9 @@ app.use((req: Request, res: Response, next: () => void) => {
   next();
 });
 
+// The compiled server lives in dist/server, so the package root is two up.
+const packageRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+
 function isPrivateNetwork(ip: string): boolean {
   // RFC1918 private ranges
   if (/^10\./.test(ip) || /^172\.(1[6-9]|2\d|3[01])\./.test(ip) || /^192\.168\./.test(ip)) return true;
@@ -94,6 +99,15 @@ app.use((_req: Request, res: Response, next: () => void) => {
   }
   next();
 });
+
+// Registered after the private-network check so static files are gated by it
+// too. Serving the UI from this same origin is what makes the generator usable
+// without CORS at all: open http://localhost:3000 and the page and the API
+// agree on an origin. The generated files must be served as well, or a result
+// is only ever a path the browser cannot load.
+app.use(express.static(join(packageRoot, 'public')));
+app.use('/generated_images', express.static(join(packageRoot, 'generated_images')));
+app.use('/generated_videos', express.static(join(packageRoot, 'generated_videos')));
 
 // OAuth flow start
 app.get('/auth/gmail/start', (_req: Request, res: Response) => {

@@ -8,6 +8,8 @@ const __dirname = dirname(__filename);
 export interface GenerationResult {
   success: boolean;
   path?: string;
+  /** Path the server serves the file from, e.g. /generated_images/image_42.png. */
+  url?: string;
   filename?: string;
   prompt: string;
   error?: string;
@@ -53,13 +55,25 @@ function spawnPython(scriptName: string, args: string[]): Promise<GenerationResu
   });
 }
 
+/** A bare filename is not reachable from a browser; point at the static route. */
+function withUrl(result: GenerationResult, route: string): GenerationResult {
+  if (result.filename === undefined) return result;
+  return { ...result, url: `/${route}/${result.filename}` };
+}
+
 export async function generateImage(
   prompt: string,
   steps: number = 20,
   guidance: number = 7.5,
   seed: number = Math.floor(Math.random() * 1000000)
 ): Promise<GenerationResult> {
-  return spawnPython('image_generator.py', [prompt, steps.toString(), guidance.toString(), seed.toString()]);
+  const result = await spawnPython('image_generator.py', [
+    prompt,
+    steps.toString(),
+    guidance.toString(),
+    seed.toString(),
+  ]);
+  return withUrl(result, 'generated_images');
 }
 
 export async function generateVideo(
@@ -68,5 +82,11 @@ export async function generateVideo(
   steps: number = 25,
   seed: number = Math.floor(Math.random() * 1000000)
 ): Promise<GenerationResult> {
-  return spawnPython('video_generator.py', [prompt, frames.toString(), steps.toString(), seed.toString()]);
+  const result = await spawnPython('video_generator.py', [
+    prompt,
+    frames.toString(),
+    steps.toString(),
+    seed.toString(),
+  ]);
+  return withUrl(result, 'generated_videos');
 }
