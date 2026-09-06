@@ -1,3 +1,16 @@
 node_modules/
 dist/
 .env
+generated_images/
+generated_videos/
+*.png
+*.gif
+*.mp4
+__pycache__/
+*.pyc
+.venv/
+venv/
+huggingface_cache/
+.cache/
+*.pt
+*.pth

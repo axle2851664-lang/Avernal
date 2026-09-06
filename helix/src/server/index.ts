@@ -2,6 +2,7 @@ import express from 'express';
 import type { Request, Response } from 'express';
 import { GmailSync, type Email } from '../integrations/gmail.js';
 import { YouTubeSync, type Video } from '../integrations/youtube.js';
+import { generateImage, generateVideo } from '../integrations/generators.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -215,6 +216,58 @@ app.post('/sync/youtube/videos', async (_req: Request, res: Response) => {
   }
 });
 
+// Generate image from text prompt
+app.post('/generate/image', async (req: Request, res: Response) => {
+  try {
+    const { prompt, steps = 20, guidance = 7.5, seed } = req.body as {
+      prompt?: string;
+      steps?: number;
+      guidance?: number;
+      seed?: number;
+    };
+
+    if (!prompt || typeof prompt !== 'string') {
+      return res.status(400).json({ error: 'Missing or invalid prompt' });
+    }
+
+    const result = await generateImage(
+      prompt,
+      steps,
+      guidance,
+      seed ?? Math.floor(Math.random() * 1000000)
+    );
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to generate image', details: String(error) });
+  }
+});
+
+// Generate video from text prompt
+app.post('/generate/video', async (req: Request, res: Response) => {
+  try {
+    const { prompt, frames = 8, steps = 25, seed } = req.body as {
+      prompt?: string;
+      frames?: number;
+      steps?: number;
+      seed?: number;
+    };
+
+    if (!prompt || typeof prompt !== 'string') {
+      return res.status(400).json({ error: 'Missing or invalid prompt' });
+    }
+
+    const result = await generateVideo(
+      prompt,
+      frames,
+      steps,
+      seed ?? Math.floor(Math.random() * 1000000)
+    );
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to generate video', details: String(error) });
+  }
+});
+
 // Health check
 app.get('/health', (_req: Request, res: Response) => {
   res.json({
@@ -223,6 +276,7 @@ app.get('/health', (_req: Request, res: Response) => {
     services: {
       gmail: accessTokens.has('default') ? 'authenticated' : 'not authenticated',
       youtube: youtubeTokens.has('default') ? 'authenticated' : 'not authenticated',
+      generators: 'available',
     },
   });
 });
