@@ -13,7 +13,8 @@
     "build": "tsc",
     "test": "vitest run",
     "verify": "npm run typecheck && npm run test",
-    "server": "npm run build && node dist/server/index.js"
+    "server": "npm run build && node dist/server/index.js",
+    "doctor": "node scripts/doctor.mjs"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
