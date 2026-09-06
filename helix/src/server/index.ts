@@ -6,6 +6,7 @@ import { GmailSync, type Email } from '../integrations/gmail.js';
 import { YouTubeSync, type Video } from '../integrations/youtube.js';
 import { generateImage, generateVideo } from '../integrations/generators.js';
 import { TokenStore } from './token-store.js';
+import { isLoopback, requireToken } from './auth.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -102,6 +103,26 @@ for (const [service, sync] of [
     });
     console.log(`Refreshed ${service} access token.`);
   });
+}
+
+const HOST = process.env.HOST ?? '127.0.0.1';
+const HELIX_TOKEN = process.env.HELIX_TOKEN ?? '';
+
+// Listening beyond loopback means another device can reach the Gmail and
+// YouTube tokens this process holds, so a shared secret becomes mandatory
+// rather than optional. Refusing to boot is deliberate: the alternative is an
+// unauthenticated inbox reachable from the network.
+if (!isLoopback(HOST) && HELIX_TOKEN === '') {
+  console.error(
+    `Refusing to listen on ${HOST} without a token.\n` +
+      `Anyone able to reach this port could read your mail.\n\n` +
+      `  HELIX_TOKEN=$(openssl rand -hex 24) HOST=${HOST} npm run server\n`
+  );
+  process.exit(1);
+}
+
+if (HELIX_TOKEN !== '') {
+  app.use(requireToken(HELIX_TOKEN));
 }
 
 // Middleware: verify private network access
@@ -342,10 +363,15 @@ app.get('/health', (_req: Request, res: Response) => {
 });
 
 const PORT = parseInt(process.env.PORT ?? '3000', 10);
-app.listen(PORT, '127.0.0.1', () => {
-  console.log(`Helix server running on http://localhost:${PORT}`);
-  console.log(`Private network access required`);
-  console.log(`OAuth start: GET http://localhost:${PORT}/auth/gmail/start`);
+app.listen(PORT, HOST, () => {
+  const suffix = HELIX_TOKEN === '' ? '' : `/?token=${HELIX_TOKEN}`;
+  console.log(`Helix server running on http://${HOST}:${PORT}${suffix}`);
+  console.log(
+    HELIX_TOKEN === ''
+      ? 'Local only. Set HOST and HELIX_TOKEN to reach it from another device.'
+      : 'Token required. Open the URL above on your phone to sign it in.'
+  );
+  console.log(`OAuth start: GET http://${HOST}:${PORT}/auth/gmail/start`);
 }).on('error', (err: NodeJS.ErrnoException) => {
   if (err.code === 'EADDRINUSE') {
     console.error(`Port ${PORT} is already in use. Stop the other process or set PORT.`);

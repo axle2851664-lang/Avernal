@@ -64,6 +64,15 @@
   #result img { width: 100%; border-radius: 10px; border: 1px solid var(--border); display: block; }
   #result .meta { color: var(--muted); font-size: .8rem; margin-top: .5rem; }
   a { color: var(--accent); }
+
+  @media (max-width: 640px) {
+    body { padding: 1.25rem .75rem 3rem; }
+    /* 16px keeps iOS Safari from zooming the page in on focus, and the taller
+       padding brings every control up to a 44px tap target. */
+    textarea, input, select { font-size: 16px; padding: .7rem; }
+    select { height: 46px; }
+    button { padding: .9rem; }
+  }
 </style>
 </head>
 <body>

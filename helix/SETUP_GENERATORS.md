@@ -67,6 +67,40 @@ To allow it: ALLOWED_ORIGINS="https://example.origin" npm run server
 Only add origins you trust. This server holds your Gmail and YouTube tokens,
 and any origin on the list can call every endpoint.
 
+## Using it from your phone
+
+By default the server listens on `127.0.0.1`, so only the machine running it
+can connect. To reach it from a phone on the same Wi-Fi:
+
+```bash
+HELIX_TOKEN=$(openssl rand -hex 24) HOST=0.0.0.0 npm run server
+```
+
+It prints a URL with the token in it. Open that on the phone once; the token is
+stored in a cookie, so later visits just work. The page adapts to a phone
+screen.
+
+The token is not optional. This server can read your mail, and the server
+refuses to start on a non-loopback address without one.
+
+### Reaching it from anywhere
+
+Do not port-forward this to the internet. Even with a token, that publishes an
+inbox-reading service to the whole world, and the built-in private-network
+check would reject the traffic anyway.
+
+Use [Tailscale](https://tailscale.com) instead: install it on both the computer
+and the phone, and they join a private encrypted network no matter where either
+one is. Tailscale hands out addresses in `100.64.0.0/10`, which the server's
+private-network check already accepts, so this works with no further changes:
+
+```bash
+HELIX_TOKEN=$(openssl rand -hex 24) HOST=0.0.0.0 npm run server
+```
+
+Then open `http://<tailscale-name>:3000/?token=...` from the phone, anywhere in
+the world. Nothing is exposed publicly.
+
 ## Step 4: Generate Images (API)
 
 ### Generate an image from a text prompt:
