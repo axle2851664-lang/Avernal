@@ -7,6 +7,8 @@ import { YouTubeSync, type Video } from '../integrations/youtube.js';
 import { generateImage, generateVideo } from '../integrations/generators.js';
 import { TokenStore } from './token-store.js';
 import { isLoopback, requireToken } from './auth.js';
+import { draftCapture } from '../core/galaxy/capture.js';
+import { existingCaptureSlugs, writeCapture } from '../platform/vault/index.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -58,6 +60,12 @@ app.use((req: Request, res: Response, next: () => void) => {
 // The compiled server lives in dist/server, so the package root is two up.
 const packageRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
+// Everything the app accumulates -- tokens, model weights, generated files, the
+// vault -- hangs off one root so the whole thing can live on a USB drive and
+// still find its data on another machine.
+const DATA_ROOT = process.env.HELIX_DATA ?? packageRoot;
+const VAULT_ROOT = process.env.HELIX_VAULT ?? join(DATA_ROOT, 'vault');
+
 function isPrivateNetwork(ip: string): boolean {
   // RFC1918 private ranges
   if (/^10\./.test(ip) || /^172\.(1[6-9]|2\d|3[01])\./.test(ip) || /^192\.168\./.test(ip)) return true;
@@ -85,7 +93,7 @@ const youtubeSync = new YouTubeSync({
 });
 
 // Backed by a file so a restart does not silently drop every connection.
-const tokenStore = new TokenStore(packageRoot);
+const tokenStore = new TokenStore(DATA_ROOT);
 
 // Persist tokens the library renews on its own, so a refresh outlives the
 // process that performed it.
@@ -140,8 +148,8 @@ app.use((_req: Request, res: Response, next: () => void) => {
 // agree on an origin. The generated files must be served as well, or a result
 // is only ever a path the browser cannot load.
 app.use(express.static(join(packageRoot, 'public')));
-app.use('/generated_images', express.static(join(packageRoot, 'generated_images')));
-app.use('/generated_videos', express.static(join(packageRoot, 'generated_videos')));
+app.use('/generated_images', express.static(join(DATA_ROOT, 'generated_images')));
+app.use('/generated_videos', express.static(join(DATA_ROOT, 'generated_videos')));
 
 // OAuth flow start
 app.get('/auth/gmail/start', (_req: Request, res: Response) => {
@@ -346,6 +354,40 @@ app.post('/generate/video', async (req: Request, res: Response) => {
     res.json(result);
   } catch (error) {
     res.status(500).json({ error: 'Failed to generate video', details: String(error) });
+  }
+});
+
+/**
+ * Somewhere for a phone to send a message. iOS gives no app access to SMS, so
+ * the only route on an iPhone is a Shortcuts automation posting here; keeping
+ * the endpoint generic means a Mac bridge or an Android forwarder can use it
+ * unchanged.
+ */
+app.post('/ingest/message', async (req: Request, res: Response) => {
+  const { text, from, source } = req.body as {
+    text?: string;
+    from?: string;
+    source?: string;
+  };
+
+  if (typeof text !== 'string' || text.trim() === '') {
+    return res.status(400).json({ error: 'Missing text' });
+  }
+
+  try {
+    const origin = [source, from].filter((v) => typeof v === 'string' && v !== '').join(' from ');
+
+    // Title from the message alone: drafting from the text with the attribution
+    // already appended pulls "(via" into the title, since it is taken from the
+    // opening words.
+    const draft = draftCapture(text, { taken: await existingCaptureSlugs(VAULT_ROOT) });
+    const withOrigin =
+      origin === '' ? draft : { ...draft, markdown: `${draft.markdown}\n(via ${origin})\n` };
+
+    const path = await writeCapture(VAULT_ROOT, withOrigin);
+    res.json({ success: true, title: draft.title, path });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to save message', details: String(error) });
   }
 });
 

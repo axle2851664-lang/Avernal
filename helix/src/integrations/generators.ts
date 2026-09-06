@@ -41,10 +41,28 @@ function pythonError(stderr: string): string | undefined {
   return stderr.trim() || undefined;
 }
 
+/**
+ * Where models and output live. Defaults to the package, so copying the whole
+ * directory -- onto a USB drive, say -- carries its data with it. Without this
+ * the weights land in the home directory and the copy is inert on another
+ * machine until it re-downloads 5GB.
+ */
+export function dataRoot(): string {
+  return process.env.HELIX_DATA ?? join(scriptDir, '..', '..');
+}
+
 function spawnPython(scriptName: string, args: string[]): Promise<GenerationResult> {
   return new Promise((resolve, reject) => {
     const scriptPath = join(scriptDir, scriptName);
-    const python = spawn('python3', [scriptPath, ...args]);
+    const root = dataRoot();
+    const python = spawn('python3', [scriptPath, ...args], {
+      env: {
+        ...process.env,
+        // Keeps the ~5GB of weights beside the app rather than in ~/.cache.
+        HF_HOME: join(root, 'models'),
+        HELIX_DATA: root,
+      },
+    });
 
     let stdout = '';
     let stderr = '';

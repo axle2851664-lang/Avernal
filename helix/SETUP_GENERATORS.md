@@ -101,6 +101,59 @@ HELIX_TOKEN=$(openssl rand -hex 24) HOST=0.0.0.0 npm run server
 Then open `http://<tailscale-name>:3000/?token=...` from the phone, anywhere in
 the world. Nothing is exposed publicly.
 
+## Running it from a USB drive
+
+Copy the whole `helix/` directory onto the drive and launch it with `./helix.sh`
+(or `helix.bat` on Windows) instead of `npm run server`. The launcher anchors
+every path to its own directory, so the vault, the OAuth tokens, the generated
+files and the ~5GB of model weights all live on the drive and travel with it.
+
+Without this the weights go to `~/.cache/huggingface` on whichever machine
+downloaded them, and the copy is inert elsewhere until it re-downloads them.
+
+**Node and Python are not bundled.** They must already be installed on the host
+machine; the launcher checks and says so if they are missing. Bundling them
+would mean shipping a separate runtime per operating system, several hundred MB
+each. The first run on a new machine also installs `node_modules`, which needs a
+network connection once.
+
+Use a fast USB 3.0 drive. Model weights are read on every startup, and loading
+several GB over USB 2.0 is painfully slow.
+
+## Capturing phone messages
+
+`POST /ingest/message` writes a message into the vault as a note:
+
+```bash
+curl -X POST http://localhost:3000/ingest/message \
+  -H "Content-Type: application/json" \
+  -d '{"text":"Pick up milk","from":"Mom","source":"iMessage"}'
+```
+
+`text` is required; `from` and `source` are optional and get recorded under the
+message.
+
+### On iPhone
+
+iOS gives no app access to SMS or iMessage — Apple blocks it, and no amount of
+code here changes that. The one route that does not need a jailbreak is a
+**Shortcuts personal automation**:
+
+1. Shortcuts → Automation → New → **When I get a message**
+2. Add action **Get Contents of URL**
+3. URL: `http://<your-tailscale-name>:3000/ingest/message?token=<HELIX_TOKEN>`
+4. Method **POST**, Request Body **JSON**, with a `text` field set to the
+   message's Shortcut Input
+5. Turn **Run Immediately** on, and notifications off
+
+This only fires for messages that arrive while the automation is enabled; it
+cannot reach back into your existing history. Apple offers no supported way to
+export past iMessages from the phone itself.
+
+The alternative, if you have a Mac signed into the same iMessage account, is to
+read its `~/Library/Messages/chat.db` and post to the same endpoint. That does
+see history, but needs a Mac that stays on and Full Disk Access granted.
+
 ## Step 4: Generate Images (API)
 
 ### Generate an image from a text prompt:

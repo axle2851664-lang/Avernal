@@ -17,3 +17,5 @@ huggingface_cache/
 
 # OAuth tokens for the local integrations
 .tokens.json
+models/
+vault/

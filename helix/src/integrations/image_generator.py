@@ -5,7 +5,11 @@ from pathlib import Path
 from diffusers import StableDiffusionPipeline
 import torch
 
-output_dir = Path(__file__).resolve().parents[2] / "generated_images"
+# HELIX_DATA lets the app and its output travel together (a USB drive,
+# say); it falls back to the package root for a normal checkout.
+import os
+_root = Path(os.environ.get("HELIX_DATA") or Path(__file__).resolve().parents[2])
+output_dir = _root / "generated_images"
 output_dir.mkdir(parents=True, exist_ok=True)
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
