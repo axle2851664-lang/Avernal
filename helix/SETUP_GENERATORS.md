@@ -18,9 +18,13 @@ This installs:
 - **diffusers**: Hugging Face model inference pipeline
 - **torch**: PyTorch for GPU/CPU computation
 - **transformers**: Model loading and tokenization
+- **accelerate**: Low-memory model loading (required by diffusers)
 - **pillow**: Image processing
 - **opencv-python**: Video processing
 - **imageio**: GIF animation export
+
+Versions are pinned because `diffusers` 0.28 does not work with
+`huggingface_hub` 0.26 or newer. Install with the pins as written.
 
 **Initial Setup**: The first time you generate an image or video, the models will download automatically (~5GB). This may take 5-15 minutes depending on your internet connection.
 
@@ -30,7 +34,14 @@ This installs:
 npm run server
 ```
 
-The Express server will start on `http://localhost:3000`.
+This compiles the TypeScript to `dist/` and starts the Express server on
+`http://localhost:3000`. Confirm it is up:
+
+```bash
+curl http://localhost:3000/health
+```
+
+If the port is taken, the server exits with a message; set `PORT` to use another.
 
 ## Step 3: Generate Images
 
@@ -125,6 +136,12 @@ Generated videos are saved as GIF animations in `generated_videos/` directory.
 
 ## Troubleshooting
 
+### Nothing is listening on localhost:3000
+Run `npm run server` in the foreground and read the output. It prints
+`Helix server running on http://localhost:3000` once it is actually up; if it
+prints an error instead, that error is the reason. `curl http://localhost:3000/health`
+confirms it independently.
+
 ### "Cannot find module 'torch'"
 Ensure Python dependencies are installed:
 ```bash
@@ -142,8 +159,11 @@ Check your internet connection. Models are cached after first download.
 ## Supported Models
 
 Currently configured for:
-- **Image**: Stable Diffusion v1.5 (runwayml/stable-diffusion-v1-5)
+- **Image**: Stable Diffusion v1.5 (stable-diffusion-v1-5/stable-diffusion-v1-5)
 - **Video**: AnimateDiff with Stable Diffusion v1.5
+
+The original `runwayml/stable-diffusion-v1-5` repo was removed from Hugging Face;
+the community-maintained mirror above replaces it.
 
 Future enhancements:
 - Stable Diffusion XL (higher quality, slower)

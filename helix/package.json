@@ -10,9 +10,10 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
+    "build": "tsc",
     "test": "vitest run",
     "verify": "npm run typecheck && npm run test",
-    "server": "node --loader ts-node/esm src/server/index.ts"
+    "server": "npm run build && node dist/server/index.js"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",

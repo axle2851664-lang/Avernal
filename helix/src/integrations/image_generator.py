@@ -5,8 +5,8 @@ from pathlib import Path
 from diffusers import StableDiffusionPipeline
 import torch
 
-output_dir = Path("generated_images")
-output_dir.mkdir(exist_ok=True)
+output_dir = Path(__file__).resolve().parents[2] / "generated_images"
+output_dir.mkdir(parents=True, exist_ok=True)
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 dtype = torch.float16 if torch.cuda.is_available() else torch.float32
@@ -17,7 +17,7 @@ try:
     guidance_scale = float(sys.argv[3]) if len(sys.argv) > 3 else 7.5
     seed = int(sys.argv[4]) if len(sys.argv) > 4 else 42
 
-    model_id = "runwayml/stable-diffusion-v1-5"
+    model_id = "stable-diffusion-v1-5/stable-diffusion-v1-5"
 
     pipe = StableDiffusionPipeline.from_pretrained(
         model_id,

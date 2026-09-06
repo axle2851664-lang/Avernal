@@ -6,8 +6,8 @@ from diffusers import AnimateDiffPipeline, MotionAdapter, DDIMScheduler
 from diffusers.utils import export_to_gif
 import torch
 
-output_dir = Path("generated_videos")
-output_dir.mkdir(exist_ok=True)
+output_dir = Path(__file__).resolve().parents[2] / "generated_videos"
+output_dir.mkdir(parents=True, exist_ok=True)
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 dtype = torch.float16 if torch.cuda.is_available() else torch.float32
@@ -23,7 +23,7 @@ try:
         torch_dtype=dtype
     )
 
-    model_id = "runwayml/stable-diffusion-v1-5"
+    model_id = "stable-diffusion-v1-5/stable-diffusion-v1-5"
     pipe = AnimateDiffPipeline.from_pretrained(
         model_id,
         motion_adapter=motion_adapter,

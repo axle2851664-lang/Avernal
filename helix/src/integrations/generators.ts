@@ -16,9 +16,12 @@ export interface GenerationResult {
   frames?: number;
 }
 
+// The server runs from dist/, but tsc does not emit the .py files; they stay in src/.
+const scriptDir = join(__dirname, '..', '..', 'src', 'integrations');
+
 function spawnPython(scriptName: string, args: string[]): Promise<GenerationResult> {
   return new Promise((resolve, reject) => {
-    const scriptPath = join(__dirname, scriptName);
+    const scriptPath = join(scriptDir, scriptName);
     const python = spawn('python3', [scriptPath, ...args]);
 
     let stdout = '';

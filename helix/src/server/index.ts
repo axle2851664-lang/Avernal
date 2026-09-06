@@ -286,4 +286,11 @@ app.listen(PORT, '127.0.0.1', () => {
   console.log(`Helix server running on http://localhost:${PORT}`);
   console.log(`Private network access required`);
   console.log(`OAuth start: GET http://localhost:${PORT}/auth/gmail/start`);
+}).on('error', (err: NodeJS.ErrnoException) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`Port ${PORT} is already in use. Stop the other process or set PORT.`);
+  } else {
+    console.error('Server failed to start:', err);
+  }
+  process.exit(1);
 });
