@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { extractWikilinkTargets, makeExcerpt, normalise, toPlainText } from '../text.js';
+import {
+  extractWikilinkTargets,
+  frontMatterTitle,
+  makeExcerpt,
+  normalise,
+  toPlainText,
+} from '../text.js';
 
 describe('toPlainText', () => {
   it('drops YAML front matter', () => {
@@ -74,5 +80,29 @@ describe('extractWikilinkTargets', () => {
 
   it('ignores wikilinks inside front matter', () => {
     expect(extractWikilinkTargets('---\nrelated: [[Hidden]]\n---\nBody [[Shown]].')).toEqual(['shown']);
+  });
+});
+
+describe('frontMatterTitle', () => {
+  it('reads a bare title', () => {
+    expect(frontMatterTitle('---\ntitle: Storage Ceiling\n---\nBody')).toBe('Storage Ceiling');
+  });
+
+  it('unquotes a double-quoted title and its escapes', () => {
+    expect(frontMatterTitle('---\ntitle: "He said \\"hi\\""\n---\nBody')).toBe('He said "hi"');
+  });
+
+  it('unquotes a single-quoted title', () => {
+    expect(frontMatterTitle("---\ntitle: 'Buy milk'\n---\nBody")).toBe('Buy milk');
+  });
+
+  it('preserves the case a capture was given', () => {
+    expect(frontMatterTitle('---\ntitle: "The ceiling is 40GB"\n---\nx')).toBe('The ceiling is 40GB');
+  });
+
+  it('returns null when there is no front matter or no title in it', () => {
+    expect(frontMatterTitle('Just a body.')).toBeNull();
+    expect(frontMatterTitle('---\ntags: [a]\n---\nBody')).toBeNull();
+    expect(frontMatterTitle('---\ntitle:   \n---\nBody')).toBeNull();
   });
 });

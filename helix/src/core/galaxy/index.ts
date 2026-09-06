@@ -22,4 +22,10 @@ export {
   titleFromContent,
   toSlug,
 } from './capture.js';
-export { extractWikilinkTargets, makeExcerpt, normalise, toPlainText } from './text.js';
+export {
+  extractWikilinkTargets,
+  frontMatterTitle,
+  makeExcerpt,
+  normalise,
+  toPlainText,
+} from './text.js';

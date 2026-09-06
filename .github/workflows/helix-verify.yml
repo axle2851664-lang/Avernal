@@ -1,0 +1,37 @@
+name: Helix verify
+
+# Scoped to helix/ so changes to the Avernal site never trigger it, and this
+# never becomes a check people learn to ignore.
+on:
+  push:
+    paths:
+      - 'helix/**'
+      - '.github/workflows/helix-verify.yml'
+  pull_request:
+    paths:
+      - 'helix/**'
+      - '.github/workflows/helix-verify.yml'
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: helix
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: helix/package-lock.json
+
+      # npm 10 crashes resolving vitest 4's peer graph; --legacy-peer-deps
+      # skips that resolution and installs the lockfile as written.
+      - run: npm ci --legacy-peer-deps
+
+      - run: npm run typecheck
+
+      - run: npm test

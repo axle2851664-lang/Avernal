@@ -18,6 +18,9 @@ const WHITESPACE = /\s+/g;
 /** Anything that is not a letter or a digit, in any script. */
 const NON_ALPHANUMERIC = /[^\p{L}\p{N}]+/gu;
 
+const FRONT_MATTER_BLOCK = /^\ufeff?---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/;
+const TITLE_LINE = /^title[ \t]*:[ \t]*(.+?)[ \t]*$/m;
+
 /** Removes a leading YAML front-matter block, if present. */
 export function stripFrontMatter(markdown: string): string {
   return markdown.replace(FRONT_MATTER, '');
@@ -93,4 +96,41 @@ export function extractWikilinkTargets(markdown: string): string[] {
   }
 
   return targets;
+}
+
+/** Strips matching quotes from a YAML scalar, honouring the escapes inside them. */
+function unquote(value: string): string {
+  if (value.length >= 2 && value.startsWith('"') && value.endsWith('"')) {
+    try {
+      const parsed: unknown = JSON.parse(value);
+      if (typeof parsed === 'string') return parsed;
+    } catch {
+      // Malformed quoting: fall through and take the value as written.
+    }
+  }
+
+  if (value.length >= 2 && value.startsWith("'") && value.endsWith("'")) {
+    return value.slice(1, -1).replace(/\'\'/g, "'");
+  }
+
+  return value;
+}
+
+/**
+ * The `title` declared in a note's front matter, if it has one.
+ *
+ * A note is labelled by its file name unless it says otherwise. Captures do say
+ * otherwise: their file name is a slug, and reading the label from that would
+ * turn "The ceiling is 40GB" into "the ceiling is 40gb" the moment it came back
+ * off disk.
+ */
+export function frontMatterTitle(markdown: string): string | null {
+  const block = FRONT_MATTER_BLOCK.exec(markdown);
+  if (block?.[1] === undefined) return null;
+
+  const line = TITLE_LINE.exec(block[1]);
+  if (line?.[1] === undefined) return null;
+
+  const title = unquote(line[1]).trim();
+  return title === '' ? null : title;
 }

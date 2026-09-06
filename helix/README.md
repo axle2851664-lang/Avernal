@@ -27,13 +27,16 @@ and the rest) so that the move is a copy, not a port.
 | `persona.ts` | The butler system prompt, notes context, boot greeting |
 | `capture.ts` | "remember that ..." to a real markdown note |
 
-And under `src/core/access/`:
+And alongside it:
 
 | File | Responsibility |
 |---|---|
-| `private-network.ts` | Whether a peer address is on a trusted private network |
+| `core/access/private-network.ts` | Whether a peer address is on a trusted private network |
+| `platform/vault/scan.ts` | Reading a folder of markdown notes into `NoteSource[]` |
+| `platform/vault/write.ts` | Writing a captured thought into the vault |
 
-Verify with `npm run verify` (typecheck + 103 tests).
+Verify with `npm run verify` (typecheck + 125 tests). CI runs the same two
+commands on any change under `helix/`.
 
 > Installing needs `--legacy-peer-deps` under npm 10.9.7, which crashes on
 > vitest 4's peer graph. Helix's own toolchain is unaffected.
@@ -87,6 +90,23 @@ slugs are passed in so a second capture never overwrites the first.
 `appendNote` is safe for a live view because ids are positions: appending leaves
 every existing note at its index. Inserting or removing anywhere else renumbers,
 and must not be done while a view is open.
+
+## Reading and writing the vault
+
+`scanVault` returns notes **sorted by path**, never in directory order. Ids are
+positions, and readdir order varies by filesystem — on a drive that moves
+between machines, unsorted reads would renumber every node just by being plugged
+into a different computer.
+
+A note is labelled by its file name unless its front matter declares a `title`.
+Captures need that: their file name is a slug, so reading the label from it
+would turn "The ceiling is 40GB" into "the ceiling is 40gb" the moment the note
+came back off disk.
+
+`writeCapture` refuses to overwrite, because a capture is something said aloud
+once and replacing one silently loses it. It also re-checks that the resolved
+path is inside the vault — `draftCapture` already builds slugs that cannot
+escape, but this value started as speech, and that door is worth locking twice.
 
 ## Keeping Helix off the open internet
 
