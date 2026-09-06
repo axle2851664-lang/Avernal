@@ -35,7 +35,7 @@ And alongside it:
 | `platform/vault/scan.ts` | Reading a folder of markdown notes into `NoteSource[]` |
 | `platform/vault/write.ts` | Writing a captured thought into the vault |
 
-Verify with `npm run verify` (typecheck + 125 tests). CI runs the same two
+Verify with `npm run verify` (typecheck + 128 tests). CI runs the same two
 commands on any change under `helix/`.
 
 > Installing needs `--legacy-peer-deps` under npm 10.9.7, which crashes on
@@ -71,6 +71,23 @@ provenance that does not exist.
 `none` is what keeps the camera still during small talk. It comes from
 `groundedNotes`, which drops any note scoring below one title hit — so a word
 that happens to appear somewhere in the vault cannot masquerade as a source.
+
+### Speed
+
+Measured on a synthetic vault, before and after indexing:
+
+| Notes | Build (before → after) | Warm query (before → after) |
+|---|---|---|
+| 1,000 | 913ms → 168ms | 30.7ms → 0.20ms |
+| 5,000 | 21,098ms → 2,445ms | 154.6ms → 1.23ms |
+
+Mention detection walks each note's prose once against a title index rather than
+searching every title in every note. Ranking uses a token index cached against
+the galaxy object, so a question costs a few map lookups instead of re-scanning
+and re-allocating every note's text.
+
+The index is built on first use; `warmSearchIndex` builds it at boot so the cost
+does not land on the first question, which is the one somebody is waiting on.
 
 ### Ranking
 

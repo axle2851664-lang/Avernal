@@ -7,7 +7,7 @@
  */
 
 import type { Galaxy, ScoredNote } from './types.js';
-import { normalise, pad } from './text.js';
+import { normalise } from './text.js';
 
 /** A title hit says more about relevance than a body hit, so it counts for more. */
 const TITLE_WEIGHT = 3;
@@ -45,19 +45,71 @@ export function tokenise(question: string): string[] {
   return tokens;
 }
 
-/** Whole-word occurrences of `token` in already-padded, normalised `haystack`. */
-function countOccurrences(haystack: string, token: string): number {
-  const needle = ` ${token} `;
-  let count = 0;
-  let from = 0;
+/**
+ * Token to node to that token's score contribution for the node.
+ *
+ * Built once per galaxy so a question costs a handful of map lookups instead of
+ * a scan of every note. The contribution is precomputed rather than the raw
+ * counts, since the weighting never varies between questions.
+ */
+type SearchIndex = Map<string, Map<number, number>>;
 
-  for (;;) {
-    const at = haystack.indexOf(needle, from);
-    if (at === -1) return count;
-    count += 1;
-    // Advance by one: adjacent matches share the space between them.
-    from = at + 1;
+/**
+ * Cached against the galaxy object itself, so callers keep the simple
+ * `selectNotes(galaxy, question)` shape and a rebuilt galaxy — after a capture,
+ * say — naturally gets a fresh index.
+ */
+const indexes = new WeakMap<Galaxy, SearchIndex>();
+
+function words(value: string): string[] {
+  return normalise(value)
+    .split(' ')
+    .filter((word) => word !== '');
+}
+
+function contribute(index: SearchIndex, token: string, id: number, amount: number): void {
+  let hits = index.get(token);
+  if (hits === undefined) {
+    hits = new Map<number, number>();
+    index.set(token, hits);
   }
+
+  hits.set(id, (hits.get(id) ?? 0) + amount);
+}
+
+function buildSearchIndex(galaxy: Galaxy): SearchIndex {
+  const index: SearchIndex = new Map();
+
+  for (const node of galaxy.nodes) {
+    for (const token of new Set(words(node.label))) {
+      contribute(index, token, node.id, TITLE_WEIGHT);
+    }
+
+    for (const token of new Set(words(node.group))) {
+      contribute(index, token, node.id, GROUP_WEIGHT);
+    }
+
+    const counts = new Map<string, number>();
+    for (const token of words(node.excerpt)) {
+      counts.set(token, (counts.get(token) ?? 0) + 1);
+    }
+
+    for (const [token, count] of counts) {
+      contribute(index, token, node.id, Math.min(count, BODY_OCCURRENCE_CAP) * BODY_WEIGHT);
+    }
+  }
+
+  return index;
+}
+
+function searchIndexFor(galaxy: Galaxy): SearchIndex {
+  let index = indexes.get(galaxy);
+  if (index === undefined) {
+    index = buildSearchIndex(galaxy);
+    indexes.set(galaxy, index);
+  }
+
+  return index;
 }
 
 /**
@@ -75,25 +127,35 @@ export function selectNotes(
   const tokens = tokenise(question);
   if (tokens.length === 0 || limit <= 0) return [];
 
-  const scored: ScoredNote[] = [];
+  const index = searchIndexFor(galaxy);
+  const totals = new Map<number, number>();
 
-  for (const node of galaxy.nodes) {
-    const title = pad(node.label);
-    const group = pad(node.group);
-    const body = pad(node.excerpt);
+  for (const token of tokens) {
+    const hits = index.get(token);
+    if (hits === undefined) continue;
 
-    let score = 0;
-    for (const token of tokens) {
-      if (title.includes(` ${token} `)) score += TITLE_WEIGHT;
-      if (group.includes(` ${token} `)) score += GROUP_WEIGHT;
-      score += Math.min(countOccurrences(body, token), BODY_OCCURRENCE_CAP) * BODY_WEIGHT;
+    for (const [id, contribution] of hits) {
+      totals.set(id, (totals.get(id) ?? 0) + contribution);
     }
-
-    if (score > 0) scored.push({ id: node.id, score });
   }
+
+  const scored: ScoredNote[] = [...totals]
+    .filter(([, score]) => score > 0)
+    .map(([id, score]) => ({ id, score }));
 
   scored.sort((left, right) => right.score - left.score || left.id - right.id);
   return scored.slice(0, limit);
+}
+
+/**
+ * Builds the search index before the first question arrives.
+ *
+ * Optional — the index is built on demand either way — but calling this once the
+ * galaxy is ready moves the cost off the first question, which is the one
+ * somebody is actually waiting on.
+ */
+export function warmSearchIndex(galaxy: Galaxy): void {
+  searchIndexFor(galaxy);
 }
 
 /**

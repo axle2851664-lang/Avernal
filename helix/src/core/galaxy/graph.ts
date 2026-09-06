@@ -14,7 +14,7 @@ import type {
   LinkKind,
   NoteSource,
 } from './types.js';
-import { extractWikilinkTargets, makeExcerpt, normalise, pad, toPlainText } from './text.js';
+import { extractWikilinkTargets, makeExcerpt, normalise, toPlainText } from './text.js';
 
 const DEFAULT_EXCERPT_LENGTH = 700;
 const DEFAULT_MIN_MENTION_LENGTH = 4;
@@ -50,9 +50,9 @@ function addLink(
 /**
  * Builds the graph.
  *
- * Mention detection compares every note against every other title, which is
- * quadratic in the number of notes. That is the right trade for a personal
- * vault; it would need an inverted index at a much larger scale.
+ * Mention detection walks each note's prose once against a title index, so the
+ * cost follows the vault's total words rather than the square of its note
+ * count. A vault of a few thousand notes builds in well under a second.
  */
 export function buildGalaxy(notes: readonly NoteSource[], options: BuildOptions = {}): Galaxy {
   const excerptLength = options.excerptLength ?? DEFAULT_EXCERPT_LENGTH;
@@ -78,7 +78,6 @@ export function buildGalaxy(notes: readonly NoteSource[], options: BuildOptions 
     else bucket.push(node.id);
   }
 
-  const prose: string[] = notes.map((note) => pad(toPlainText(note.text)));
   const links = new Map<string, GalaxyLink>();
 
   notes.forEach((note, index) => {
@@ -87,14 +86,50 @@ export function buildGalaxy(notes: readonly NoteSource[], options: BuildOptions 
     }
   });
 
+  const prose: string[][] = notes.map((note) =>
+    normalise(toPlainText(note.text))
+      .split(' ')
+      .filter((word) => word !== ''),
+  );
+
+  // Titles indexed by their opening word. Each note's prose is then walked once
+  // and only the titles that could start at each position are compared, rather
+  // than every title being searched for in every note.
+  const candidates = new Map<string, { id: number; words: string[] }[]>();
   for (const node of nodes) {
     const title = normalise(node.label);
     if (title.length < minMentionLength) continue;
 
-    const needle = ` ${title} `;
-    for (let index = 0; index < prose.length; index += 1) {
-      if (index === node.id) continue;
-      if ((prose[index] ?? '').includes(needle)) addLink(links, index, node.id, 'mention');
+    const words = title.split(' ').filter((word) => word !== '');
+    const first = words[0];
+    if (first === undefined) continue;
+
+    const bucket = candidates.get(first);
+    if (bucket === undefined) candidates.set(first, [{ id: node.id, words }]);
+    else bucket.push({ id: node.id, words });
+  }
+
+  for (let index = 0; index < prose.length; index += 1) {
+    const words = prose[index] ?? [];
+
+    for (let at = 0; at < words.length; at += 1) {
+      const head = words[at];
+      if (head === undefined) continue;
+
+      for (const candidate of candidates.get(head) ?? []) {
+        if (candidate.id === index) continue;
+        if (at + candidate.words.length > words.length) continue;
+
+        let matched = true;
+        for (let offset = 1; offset < candidate.words.length; offset += 1) {
+          if (words[at + offset] !== candidate.words[offset]) {
+            matched = false;
+            break;
+          }
+        }
+
+        if (matched) addLink(links, index, candidate.id, 'mention');
+      }
     }
   }
 

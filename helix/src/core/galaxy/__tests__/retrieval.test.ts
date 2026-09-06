@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { buildGalaxy } from '../graph.js';
-import { selectNotes, tokenise } from '../retrieval.js';
+import { selectNotes, tokenise, warmSearchIndex } from '../retrieval.js';
 import type { NoteSource } from '../types.js';
 
 function note(label: string, text: string, group = 'notes'): NoteSource {
@@ -80,5 +80,39 @@ describe('selectNotes', () => {
     for (const { id } of selectNotes(galaxy, 'storage ceiling voice')) {
       expect(galaxy.nodes[id]?.id).toBe(id);
     }
+  });
+});
+
+describe('search index caching', () => {
+  it('returns identical results on repeated queries', () => {
+    const first = selectNotes(galaxy, 'storage ceiling voice');
+    const second = selectNotes(galaxy, 'storage ceiling voice');
+    const third = selectNotes(galaxy, 'storage ceiling voice');
+
+    expect(second).toEqual(first);
+    expect(third).toEqual(first);
+  });
+
+  it('gives the same answer warm as cold', () => {
+    const cold = buildGalaxy([
+      note('Storage Ceiling', 'The ceiling bounds how much disk Helix may consume.', 'architecture'),
+      note('Voice', 'Listening and speaking.', 'interface'),
+    ]);
+
+    const warm = buildGalaxy([
+      note('Storage Ceiling', 'The ceiling bounds how much disk Helix may consume.', 'architecture'),
+      note('Voice', 'Listening and speaking.', 'interface'),
+    ]);
+    warmSearchIndex(warm);
+
+    expect(selectNotes(warm, 'storage ceiling')).toEqual(selectNotes(cold, 'storage ceiling'));
+  });
+
+  it('does not serve a stale index to a rebuilt galaxy', () => {
+    const before = buildGalaxy([note('Voice', 'Speaks.')]);
+    expect(selectNotes(before, 'sourdough')).toEqual([]);
+
+    const after = buildGalaxy([note('Voice', 'Speaks.'), note('Sourdough', 'Starter needs feeding.')]);
+    expect(selectNotes(after, 'sourdough').map((n) => n.id)).toEqual([1]);
   });
 });

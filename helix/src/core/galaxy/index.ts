@@ -11,7 +11,13 @@ export type { FocusPlan } from './focus.js';
 export type { CaptureDraft, DraftOptions } from './capture.js';
 
 export { appendNote, assertGalaxyIntegrity, buildGalaxy } from './graph.js';
-export { GROUNDING_THRESHOLD, groundedNotes, selectNotes, tokenise } from './retrieval.js';
+export {
+  GROUNDING_THRESHOLD,
+  groundedNotes,
+  selectNotes,
+  tokenise,
+  warmSearchIndex,
+} from './retrieval.js';
 export { CLUSTER_THRESHOLD, neighboursOf, planFocus } from './focus.js';
 export { SYSTEM_PROMPT, bootGreeting, renderNotesContext } from './persona.js';
 export {
