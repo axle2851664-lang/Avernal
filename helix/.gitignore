@@ -14,3 +14,6 @@ huggingface_cache/
 .cache/
 *.pt
 *.pth
+
+# OAuth tokens for the local integrations
+.tokens.json

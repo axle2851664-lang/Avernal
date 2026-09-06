@@ -31,7 +31,24 @@ export class YouTubeSync {
   ]) {
     return this.auth.generateAuthUrl({
       access_type: 'offline',
+      // Google returns a refresh token only on the first authorisation unless
+      // consent is re-prompted; without one the connection cannot outlive the
+      // access token's hour.
+      prompt: 'consent',
       scope: scopes,
+    });
+  }
+
+  /**
+   * The library refreshes the access token on its own once it expires. Without
+   * somewhere to put the replacement the caller keeps persisting the stale one
+   * and refreshes again on every request, and a rotated refresh token would be
+   * lost outright.
+   */
+  onTokenRefresh(handler: (accessToken: string, refreshToken: string | null, expiresAt?: number) => void) {
+    this.auth.on('tokens', (tokens) => {
+      if (!tokens.access_token) return;
+      handler(tokens.access_token, tokens.refresh_token ?? null, tokens.expiry_date ?? undefined);
     });
   }
 
@@ -41,12 +58,21 @@ export class YouTubeSync {
     return tokens;
   }
 
-  async setAccessToken(accessToken: string, refreshToken: string | null = null) {
+  async setAccessToken(
+    accessToken: string,
+    refreshToken: string | null = null,
+    expiresAt?: number
+  ) {
+    // expiry_date is what drives the library's automatic refresh: its
+    // isTokenExpiring() returns false whenever the field is absent, so leaving
+    // it out means the token is never renewed and calls start failing after
+    // roughly an hour.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const creds: any = {
       access_token: accessToken,
       refresh_token: refreshToken ?? null,
     };
+    if (expiresAt !== undefined) creds.expiry_date = expiresAt;
     this.auth.setCredentials(creds);
   }
 

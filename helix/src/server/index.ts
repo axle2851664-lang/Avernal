@@ -5,6 +5,7 @@ import { dirname, join } from 'path';
 import { GmailSync, type Email } from '../integrations/gmail.js';
 import { YouTubeSync, type Video } from '../integrations/youtube.js';
 import { generateImage, generateVideo } from '../integrations/generators.js';
+import { TokenStore } from './token-store.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -82,14 +83,26 @@ const youtubeSync = new YouTubeSync({
   redirectUrl: process.env.YOUTUBE_REDIRECT_URL || 'http://localhost:3000/auth/youtube/callback',
 });
 
-interface TokenData {
-  accessToken: string;
-  refreshToken: string | null;
-  expiresAt: number;
-}
+// Backed by a file so a restart does not silently drop every connection.
+const tokenStore = new TokenStore(packageRoot);
 
-const accessTokens = new Map<string, TokenData>();
-const youtubeTokens = new Map<string, TokenData>();
+// Persist tokens the library renews on its own, so a refresh outlives the
+// process that performed it.
+for (const [service, sync] of [
+  ['gmail', gmailSync],
+  ['youtube', youtubeSync],
+] as const) {
+  sync.onTokenRefresh((accessToken, refreshToken, expiresAt) => {
+    const existing = tokenStore.get(service);
+    tokenStore.set(service, {
+      accessToken,
+      // A refresh response usually omits the refresh token; keep the stored one.
+      refreshToken: refreshToken ?? existing?.refreshToken ?? null,
+      expiresAt: expiresAt ?? Date.now() + 3600000,
+    });
+    console.log(`Refreshed ${service} access token.`);
+  });
+}
 
 // Middleware: verify private network access
 app.use((_req: Request, res: Response, next: () => void) => {
@@ -128,11 +141,7 @@ app.get('/auth/gmail/callback', async (req: Request, res: Response) => {
     const refreshToken = tokens.refresh_token || null;
     const expiresAt = tokens.expiry_date || Date.now() + 3600000;
 
-    accessTokens.set('default', {
-      accessToken,
-      refreshToken,
-      expiresAt,
-    });
+    tokenStore.set('gmail', { accessToken, refreshToken, expiresAt });
     res.json({ success: true, message: 'Gmail connected successfully' });
   } catch (error) {
     res.status(500).json({ error: 'Failed to authenticate with Gmail', details: String(error) });
@@ -166,13 +175,13 @@ ${email.snippet ? `\n**Preview:** ${email.snippet}` : ''}
 
 // Fetch and sync emails
 app.post('/sync/gmail/unread', async (_req: Request, res: Response) => {
-  const tokenData = accessTokens.get('default');
+  const tokenData = tokenStore.get('gmail');
   if (!tokenData) {
     return res.status(401).json({ error: 'Gmail not authenticated. Run /auth/gmail/start first' });
   }
 
   try {
-    await gmailSync.setAccessToken(tokenData.accessToken, tokenData.refreshToken);
+    await gmailSync.setAccessToken(tokenData.accessToken, tokenData.refreshToken, tokenData.expiresAt);
     const emails = await gmailSync.fetchUnread();
     const notes = emails.map(emailToNote);
     res.json({ success: true, count: notes.length, notes });
@@ -185,13 +194,13 @@ app.post('/sync/gmail/unread', async (_req: Request, res: Response) => {
 app.post('/sync/gmail/from/:sender', async (req: Request, res: Response) => {
   const senderParam = req.params.sender;
   const sender = Array.isArray(senderParam) ? (senderParam[0] ?? '') : (senderParam ?? '');
-  const tokenData = accessTokens.get('default');
+  const tokenData = tokenStore.get('gmail');
   if (!tokenData) {
     return res.status(401).json({ error: 'Gmail not authenticated' });
   }
 
   try {
-    await gmailSync.setAccessToken(tokenData.accessToken, tokenData.refreshToken);
+    await gmailSync.setAccessToken(tokenData.accessToken, tokenData.refreshToken, tokenData.expiresAt);
     const emails = await gmailSync.fetchFromSender(sender);
     const notes = emails.map(emailToNote);
     res.json({ success: true, count: notes.length, notes });
@@ -241,11 +250,7 @@ app.get('/auth/youtube/callback', async (req: Request, res: Response) => {
     const refreshToken = tokens.refresh_token || null;
     const expiresAt = tokens.expiry_date || Date.now() + 3600000;
 
-    youtubeTokens.set('default', {
-      accessToken,
-      refreshToken,
-      expiresAt,
-    });
+    tokenStore.set('youtube', { accessToken, refreshToken, expiresAt });
     res.json({ success: true, message: 'YouTube connected successfully. You can now sync videos.' });
   } catch (error) {
     res.status(500).json({ error: 'Failed to authenticate with YouTube', details: String(error) });
@@ -254,7 +259,7 @@ app.get('/auth/youtube/callback', async (req: Request, res: Response) => {
 
 // Fetch and sync YouTube videos
 app.post('/sync/youtube/videos', async (_req: Request, res: Response) => {
-  const tokenData = youtubeTokens.get('default');
+  const tokenData = tokenStore.get('youtube');
   if (!tokenData) {
     return res
       .status(401)
@@ -262,7 +267,7 @@ app.post('/sync/youtube/videos', async (_req: Request, res: Response) => {
   }
 
   try {
-    await youtubeSync.setAccessToken(tokenData.accessToken, tokenData.refreshToken);
+    await youtubeSync.setAccessToken(tokenData.accessToken, tokenData.refreshToken, tokenData.expiresAt);
     const videos = await youtubeSync.fetchChannelVideos(15);
     const notes = videos.map(videoToNote);
     res.json({ success: true, count: notes.length, notes });
@@ -329,8 +334,8 @@ app.get('/health', (_req: Request, res: Response) => {
     status: 'ok',
     private_network_access: true,
     services: {
-      gmail: accessTokens.has('default') ? 'authenticated' : 'not authenticated',
-      youtube: youtubeTokens.has('default') ? 'authenticated' : 'not authenticated',
+      gmail: tokenStore.has('gmail') ? 'authenticated' : 'not authenticated',
+      youtube: tokenStore.has('youtube') ? 'authenticated' : 'not authenticated',
       generators: 'available',
     },
   });
