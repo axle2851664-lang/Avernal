@@ -124,3 +124,20 @@ export function assertGalaxyIntegrity(galaxy: Galaxy): void {
     }
   }
 }
+
+/**
+ * Adds a note to an existing set and rebuilds the graph.
+ *
+ * Safe precisely because ids are positions: appending leaves every existing
+ * note at the index it already had and gives the new note the next one. A live
+ * view can therefore draw the new node without re-resolving the ids it holds.
+ * Inserting or removing anywhere else would renumber, and must not be done
+ * while a view is open.
+ */
+export function appendNote(
+  notes: readonly NoteSource[],
+  note: NoteSource,
+  options: BuildOptions = {},
+): Galaxy {
+  return buildGalaxy([...notes, note], options);
+}

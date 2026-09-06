@@ -95,3 +95,28 @@ export function selectNotes(
   scored.sort((left, right) => right.score - left.score || left.id - right.id);
   return scored.slice(0, limit);
 }
+
+/**
+ * The score a note must reach before it counts as having grounded an answer:
+ * one title hit, or three mentions in the body.
+ *
+ * This is what separates "he asked about his notes" from "a word in his small
+ * talk happened to appear somewhere". Below it, a note is a coincidence, and
+ * lighting it up in the galaxy would claim a provenance that does not exist.
+ */
+export const GROUNDING_THRESHOLD = TITLE_WEIGHT;
+
+/**
+ * Notes strong enough to answer from, best first.
+ *
+ * Unlike `selectNotes` this can return nothing at all, which is the point: an
+ * empty result is how small talk stays small talk, leaving the camera still and
+ * the answer ungrounded rather than manufacturing a source.
+ */
+export function groundedNotes(
+  galaxy: Galaxy,
+  question: string,
+  limit: number = DEFAULT_LIMIT,
+): ScoredNote[] {
+  return selectNotes(galaxy, question, limit).filter((note) => note.score >= GROUNDING_THRESHOLD);
+}
