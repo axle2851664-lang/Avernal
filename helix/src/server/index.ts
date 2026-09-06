@@ -358,6 +358,37 @@ app.post('/generate/video', async (req: Request, res: Response) => {
 });
 
 /**
+ * Writes text into the vault as a note. Shared by the note box in the UI and by
+ * anything forwarding messages in, so both go through the vault's own draft and
+ * write path -- including its refusal to write outside the vault.
+ */
+async function saveNote(text: string, origin: string): Promise<{ title: string; path: string }> {
+  // Title from the message alone: drafting from text with the attribution
+  // already appended pulls "(via" into the title, since it is taken from the
+  // opening words.
+  const draft = draftCapture(text, { taken: await existingCaptureSlugs(VAULT_ROOT) });
+  const withOrigin =
+    origin === '' ? draft : { ...draft, markdown: `${draft.markdown}\n(via ${origin})\n` };
+
+  const path = await writeCapture(VAULT_ROOT, withOrigin);
+  return { title: draft.title, path };
+}
+
+// Add a note by hand.
+app.post('/notes', async (req: Request, res: Response) => {
+  const { text } = req.body as { text?: string };
+  if (typeof text !== 'string' || text.trim() === '') {
+    return res.status(400).json({ error: 'Missing text' });
+  }
+
+  try {
+    res.json({ success: true, ...(await saveNote(text, '')) });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to save note', details: String(error) });
+  }
+});
+
+/**
  * Somewhere for a phone to send a message. iOS gives no app access to SMS, so
  * the only route on an iPhone is a Shortcuts automation posting here; keeping
  * the endpoint generic means a Mac bridge or an Android forwarder can use it
@@ -376,16 +407,7 @@ app.post('/ingest/message', async (req: Request, res: Response) => {
 
   try {
     const origin = [source, from].filter((v) => typeof v === 'string' && v !== '').join(' from ');
-
-    // Title from the message alone: drafting from the text with the attribution
-    // already appended pulls "(via" into the title, since it is taken from the
-    // opening words.
-    const draft = draftCapture(text, { taken: await existingCaptureSlugs(VAULT_ROOT) });
-    const withOrigin =
-      origin === '' ? draft : { ...draft, markdown: `${draft.markdown}\n(via ${origin})\n` };
-
-    const path = await writeCapture(VAULT_ROOT, withOrigin);
-    res.json({ success: true, title: draft.title, path });
+    res.json({ success: true, ...(await saveNote(text, origin)) });
   } catch (error) {
     res.status(500).json({ error: 'Failed to save message', details: String(error) });
   }

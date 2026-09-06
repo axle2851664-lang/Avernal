@@ -64,6 +64,17 @@
   #result img { width: 100%; border-radius: 10px; border: 1px solid var(--border); display: block; }
   #result .meta { color: var(--muted); font-size: .8rem; margin-top: .5rem; }
   a { color: var(--accent); }
+  .tabs { display: flex; gap: .5rem; margin-bottom: 1rem; }
+  .tab {
+    width: auto; margin: 0; padding: .5rem 1rem;
+    background: transparent; color: var(--muted);
+    border: 1px solid var(--border); border-radius: 8px;
+    font: inherit; cursor: pointer;
+  }
+  .tab.active { background: var(--accent); color: #0b0d14; border-color: var(--accent); font-weight: 600; }
+  #note-status { margin-top: 1rem; font-size: .9rem; color: var(--muted); min-height: 1.4em; }
+  #note-status.error { color: var(--error); white-space: pre-wrap; }
+  #note { min-height: 120px; }
 
   @media (max-width: 640px) {
     body { padding: 1.25rem .75rem 3rem; }
@@ -77,10 +88,22 @@
 </head>
 <body>
 <main>
-  <h1>Helix Generator</h1>
-  <p class="sub">Local Stable Diffusion. Served from the same origin as the API, so nothing here depends on cross-origin access.</p>
+  <h1>Helix</h1>
+  <p class="sub">Served from the same origin as the API, so nothing here depends on cross-origin access.</p>
 
-  <div class="panel">
+  <div class="tabs">
+    <button class="tab active" data-panel="note-panel">Note</button>
+    <button class="tab" data-panel="gen-panel">Generate</button>
+  </div>
+
+  <div class="panel" id="note-panel">
+    <label for="note">Note</label>
+    <textarea id="note" placeholder="Anything you want to remember."></textarea>
+    <button id="save">Save to vault</button>
+    <div id="note-status"></div>
+  </div>
+
+  <div class="panel" id="gen-panel" hidden>
     <label for="prompt">Prompt</label>
     <textarea id="prompt" placeholder="a lighthouse on a cliff at dusk">a lighthouse on a cliff at dusk</textarea>
 
@@ -110,6 +133,39 @@
 
 <script>
   const el = (id) => document.getElementById(id);
+
+  document.querySelectorAll('.tab').forEach((tab) => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t === tab));
+      for (const id of ['note-panel', 'gen-panel']) el(id).hidden = id !== tab.dataset.panel;
+    });
+  });
+
+  el('save').addEventListener('click', async () => {
+    const text = el('note').value.trim();
+    const out = el('note-status');
+    const show = (msg, bad) => { out.textContent = msg; out.classList.toggle('error', Boolean(bad)); };
+
+    if (!text) { show('Write something first.', true); return; }
+
+    el('save').disabled = true;
+    show('Saving...');
+    try {
+      const res = await fetch('/notes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      const data = await res.json();
+      if (!res.ok) { show(data.details || data.error || 'Could not save.', true); return; }
+      show('Saved as "' + data.title + '".');
+      el('note').value = '';
+    } catch (err) {
+      show('Could not reach the server: ' + err.message, true);
+    } finally {
+      el('save').disabled = false;
+    }
+  });
   const status = el('status');
   const result = el('result');
 

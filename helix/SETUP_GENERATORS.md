@@ -120,6 +120,37 @@ network connection once.
 Use a fast USB 3.0 drive. Model weights are read on every startup, and loading
 several GB over USB 2.0 is painfully slow.
 
+## Adding notes
+
+Three ways, all landing in the same vault.
+
+**From the page.** Open http://localhost:3000, use the **Note** tab, write, and
+press Save. The note goes to `vault/captures/`.
+
+**By dropping a file in.** Any `.md` or `.markdown` file anywhere under the
+vault is a note — nothing needs to import it. Two things follow from where you
+put it:
+
+- The **folder** becomes the note's group, which is what colours it in the
+  galaxy. A file in `vault/projects/` groups as `projects`; one in the vault
+  root groups as `root`.
+- The **filename** becomes the label, with hyphens and underscores read as
+  spaces, unless the file has a `title:` in its front matter, which wins.
+
+Files and folders starting with `.`, plus `node_modules`, `dist`, `build` and
+`.git`, are skipped.
+
+**Over HTTP.**
+
+```bash
+curl -X POST http://localhost:3000/notes \
+  -H "Content-Type: application/json" \
+  -d '{"text":"Ideas for the galaxy layout"}'
+```
+
+The title is taken from the opening words, so the first line is worth writing
+like a title.
+
 ## Capturing phone messages
 
 `POST /ingest/message` writes a message into the vault as a note:
