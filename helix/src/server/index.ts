@@ -1,6 +1,7 @@
 import express from 'express';
 import type { Request, Response } from 'express';
 import { GmailSync, type Email } from '../integrations/gmail.js';
+import { YouTubeSync, type Video } from '../integrations/youtube.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -28,6 +29,12 @@ const gmailSync = new GmailSync({
   redirectUrl: process.env.GMAIL_REDIRECT_URL || 'http://localhost:3000/auth/gmail/callback',
 });
 
+const youtubeSync = new YouTubeSync({
+  clientId: process.env.YOUTUBE_CLIENT_ID || '',
+  clientSecret: process.env.YOUTUBE_CLIENT_SECRET || '',
+  redirectUrl: process.env.YOUTUBE_REDIRECT_URL || 'http://localhost:3000/auth/youtube/callback',
+});
+
 interface TokenData {
   accessToken: string;
   refreshToken: string | null;
@@ -35,6 +42,7 @@ interface TokenData {
 }
 
 const accessTokens = new Map<string, TokenData>();
+const youtubeTokens = new Map<string, TokenData>();
 
 // Middleware: verify private network access
 app.use((_req: Request, res: Response, next: () => void) => {
@@ -136,9 +144,87 @@ app.post('/sync/gmail/from/:sender', async (req: Request, res: Response) => {
   }
 });
 
+// Convert video to note format
+function videoToNote(video: Video): { title: string; content: string; tags: string[] } {
+  const title = `[${video.viewCount} views] ${video.title.substring(0, 60)}`;
+  const content = `
+**Channel:** ${video.channelTitle}
+**Published:** ${video.publishedAt}
+**Views:** ${video.viewCount} | **Likes:** ${video.likeCount} | **Comments:** ${video.commentCount}
+
+---
+
+${video.description.substring(0, 1000)}${video.description.length > 1000 ? '…' : ''}
+
+**Video ID:** ${video.id}
+`.trim();
+
+  return {
+    title,
+    content,
+    tags: ['youtube', 'video'],
+  };
+}
+
+// YouTube OAuth flow start
+app.get('/auth/youtube/start', (_req: Request, res: Response) => {
+  const authUrl = youtubeSync.getAuthUrl();
+  res.json({ authUrl });
+});
+
+// YouTube OAuth callback
+app.get('/auth/youtube/callback', async (req: Request, res: Response) => {
+  const code = req.query.code;
+  if (!code || typeof code !== 'string') {
+    return res.status(400).json({ error: 'Missing authorization code' });
+  }
+
+  try {
+    const tokens = await youtubeSync.setCredentials(code);
+    const accessToken = tokens.access_token || '';
+    const refreshToken = tokens.refresh_token || null;
+    const expiresAt = tokens.expiry_date || Date.now() + 3600000;
+
+    youtubeTokens.set('default', {
+      accessToken,
+      refreshToken,
+      expiresAt,
+    });
+    res.json({ success: true, message: 'YouTube connected successfully. You can now sync videos.' });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to authenticate with YouTube', details: String(error) });
+  }
+});
+
+// Fetch and sync YouTube videos
+app.post('/sync/youtube/videos', async (_req: Request, res: Response) => {
+  const tokenData = youtubeTokens.get('default');
+  if (!tokenData) {
+    return res
+      .status(401)
+      .json({ error: 'YouTube not authenticated. Visit http://localhost:3000/auth/youtube/start' });
+  }
+
+  try {
+    await youtubeSync.setAccessToken(tokenData.accessToken, tokenData.refreshToken);
+    const videos = await youtubeSync.fetchChannelVideos(15);
+    const notes = videos.map(videoToNote);
+    res.json({ success: true, count: notes.length, notes });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch videos', details: String(error) });
+  }
+});
+
 // Health check
 app.get('/health', (_req: Request, res: Response) => {
-  res.json({ status: 'ok', private_network_access: true });
+  res.json({
+    status: 'ok',
+    private_network_access: true,
+    services: {
+      gmail: accessTokens.has('default') ? 'authenticated' : 'not authenticated',
+      youtube: youtubeTokens.has('default') ? 'authenticated' : 'not authenticated',
+    },
+  });
 });
 
 const PORT = parseInt(process.env.PORT ?? '3000', 10);
