@@ -10,6 +10,47 @@ dotenv.config();
 const app = express();
 app.use(express.json());
 
+// The Helix Galaxy UI is served from a different origin than this server, so the
+// browser demands CORS headers before it will hand over a response. Origins are
+// allowlisted rather than reflected: this process holds Gmail and YouTube access
+// tokens, and echoing any origin back would let every site the user visits read
+// their mail through localhost.
+const DEFAULT_ALLOWED_ORIGINS = ['https://claude.ai', 'https://www.claude.ai'];
+const allowedOrigins = new Set(
+  (process.env.ALLOWED_ORIGINS ?? DEFAULT_ALLOWED_ORIGINS.join(','))
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean)
+);
+
+app.use((req: Request, res: Response, next: () => void) => {
+  const origin = req.headers.origin;
+
+  if (origin !== undefined && allowedOrigins.has(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    // Chrome treats https -> localhost as a private-network request and blocks
+    // it unless the preflight is answered with this.
+    if (req.headers['access-control-request-private-network'] === 'true') {
+      res.setHeader('Access-Control-Allow-Private-Network', 'true');
+    }
+  } else if (origin !== undefined) {
+    // Printed so an unexpected UI origin is diagnosable from the console rather
+    // than surfacing in the browser as an unexplained "failed to fetch".
+    console.warn(
+      `Blocked cross-origin request from ${origin}. ` +
+        `To allow it: ALLOWED_ORIGINS="${origin}" npm run server`
+    );
+  }
+
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(204);
+  }
+  next();
+});
+
 function isPrivateNetwork(ip: string): boolean {
   // RFC1918 private ranges
   if (/^10\./.test(ip) || /^172\.(1[6-9]|2\d|3[01])\./.test(ip) || /^192\.168\./.test(ip)) return true;
