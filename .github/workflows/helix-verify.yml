@@ -3,7 +3,10 @@ name: Helix verify
 # Scoped to helix/ so changes to the Avernal site never trigger it, and this
 # never becomes a check people learn to ignore.
 on:
+  # Only on main after merge. A branch with an open PR is covered by the
+  # pull_request trigger, and matching both ran this twice on every push.
   push:
+    branches: [main]
     paths:
       - 'helix/**'
       - '.github/workflows/helix-verify.yml'
@@ -11,6 +14,12 @@ on:
     paths:
       - 'helix/**'
       - '.github/workflows/helix-verify.yml'
+
+# A newer push makes an in-flight run irrelevant; let it go rather than
+# finishing a check nobody will read.
+concurrency:
+  group: helix-verify-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   verify:
