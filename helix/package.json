@@ -1,0 +1,34 @@
+{
+  "name": "helix-galaxy-core",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Knowledge-galaxy core for Helix - staged here until the Helix source is reachable",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc",
+    "test": "vitest run",
+    "verify": "npm run typecheck && npm run test",
+    "server": "npm run build && node dist/server/index.js",
+    "doctor": "node scripts/doctor.mjs"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^22.19.2",
+    "ts-node": "^10.9.2",
+    "typescript": "5.9.3",
+    "vitest": "4.1.11"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "google-auth-library": "^11.0.2",
+    "googleapis": "^178.0.0",
+    "sharp": "^0.33.5",
+    "uuid": "^9.0.1"
+  }
+}

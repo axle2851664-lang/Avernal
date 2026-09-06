@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Helix Generator</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #0e0f13;
+    --panel: #171922;
+    --border: #2a2d3a;
+    --text: #e6e8ef;
+    --muted: #9aa0b4;
+    --accent: #6c8cff;
+    --error: #ff8b8b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 2rem 1rem 4rem;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 760px; margin: 0 auto; }
+  h1 { font-size: 1.35rem; margin: 0 0 .25rem; }
+  .sub { color: var(--muted); margin: 0 0 1.75rem; font-size: .9rem; }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.25rem;
+  }
+  label { display: block; font-size: .8rem; color: var(--muted); margin-bottom: .35rem; }
+  textarea, input, select {
+    width: 100%;
+    background: #0f1118;
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: .6rem .7rem;
+    font: inherit;
+  }
+  textarea { resize: vertical; min-height: 76px; }
+  .row { display: flex; gap: .75rem; flex-wrap: wrap; margin-top: 1rem; }
+  .row > div { flex: 1 1 120px; }
+  button {
+    margin-top: 1.25rem;
+    width: 100%;
+    background: var(--accent);
+    color: #0b0d14;
+    border: 0;
+    border-radius: 8px;
+    padding: .75rem;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button:disabled { opacity: .55; cursor: default; }
+  #status { margin-top: 1.25rem; font-size: .9rem; color: var(--muted); min-height: 1.4em; }
+  #status.error { color: var(--error); white-space: pre-wrap; }
+  #result { margin-top: 1.25rem; }
+  #result img { width: 100%; border-radius: 10px; border: 1px solid var(--border); display: block; }
+  #result .meta { color: var(--muted); font-size: .8rem; margin-top: .5rem; }
+  a { color: var(--accent); }
+  .tabs { display: flex; gap: .5rem; margin-bottom: 1rem; }
+  .tab {
+    width: auto; margin: 0; padding: .5rem 1rem;
+    background: transparent; color: var(--muted);
+    border: 1px solid var(--border); border-radius: 8px;
+    font: inherit; cursor: pointer;
+  }
+  .tab.active { background: var(--accent); color: #0b0d14; border-color: var(--accent); font-weight: 600; }
+  #note-status { margin-top: 1rem; font-size: .9rem; color: var(--muted); min-height: 1.4em; }
+  #note-status.error { color: var(--error); white-space: pre-wrap; }
+  #note { min-height: 120px; }
+
+  @media (max-width: 640px) {
+    body { padding: 1.25rem .75rem 3rem; }
+    /* 16px keeps iOS Safari from zooming the page in on focus, and the taller
+       padding brings every control up to a 44px tap target. */
+    textarea, input, select { font-size: 16px; padding: .7rem; }
+    select { height: 46px; }
+    button { padding: .9rem; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>Helix</h1>
+  <p class="sub">Served from the same origin as the API, so nothing here depends on cross-origin access.</p>
+
+  <div class="tabs">
+    <button class="tab active" data-panel="note-panel">Note</button>
+    <button class="tab" data-panel="gen-panel">Generate</button>
+  </div>
+
+  <div class="panel" id="note-panel">
+    <label for="note">Note</label>
+    <textarea id="note" placeholder="Anything you want to remember."></textarea>
+    <button id="save">Save to vault</button>
+    <div id="note-status"></div>
+  </div>
+
+  <div class="panel" id="gen-panel" hidden>
+    <label for="prompt">Prompt</label>
+    <textarea id="prompt" placeholder="a lighthouse on a cliff at dusk">a lighthouse on a cliff at dusk</textarea>
+
+    <div class="row">
+      <div>
+        <label for="mode">Type</label>
+        <select id="mode">
+          <option value="image">Image</option>
+          <option value="video">Video (GIF)</option>
+        </select>
+      </div>
+      <div>
+        <label for="steps">Steps</label>
+        <input id="steps" type="number" value="20" min="1" max="100" />
+      </div>
+      <div>
+        <label for="seed">Seed (blank = random)</label>
+        <input id="seed" type="number" placeholder="random" />
+      </div>
+    </div>
+
+    <button id="go">Generate</button>
+    <div id="status"></div>
+    <div id="result"></div>
+  </div>
+</main>
+
+<script>
+  const el = (id) => document.getElementById(id);
+
+  document.querySelectorAll('.tab').forEach((tab) => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t === tab));
+      for (const id of ['note-panel', 'gen-panel']) el(id).hidden = id !== tab.dataset.panel;
+    });
+  });
+
+  el('save').addEventListener('click', async () => {
+    const text = el('note').value.trim();
+    const out = el('note-status');
+    const show = (msg, bad) => { out.textContent = msg; out.classList.toggle('error', Boolean(bad)); };
+
+    if (!text) { show('Write something first.', true); return; }
+
+    el('save').disabled = true;
+    show('Saving...');
+    try {
+      const res = await fetch('/notes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      const data = await res.json();
+      if (!res.ok) { show(data.details || data.error || 'Could not save.', true); return; }
+      show('Saved as "' + data.title + '".');
+      el('note').value = '';
+    } catch (err) {
+      show('Could not reach the server: ' + err.message, true);
+    } finally {
+      el('save').disabled = false;
+    }
+  });
+  const status = el('status');
+  const result = el('result');
+
+  function setStatus(text, isError) {
+    status.textContent = text;
+    status.classList.toggle('error', Boolean(isError));
+  }
+
+  el('go').addEventListener('click', async () => {
+    const prompt = el('prompt').value.trim();
+    if (!prompt) {
+      setStatus('Enter a prompt first.', true);
+      return;
+    }
+
+    const mode = el('mode').value;
+    const steps = Number(el('steps').value) || undefined;
+    const seedRaw = el('seed').value.trim();
+
+    const body = { prompt };
+    if (steps !== undefined) body.steps = steps;
+    if (seedRaw !== '') body.seed = Number(seedRaw);
+
+    el('go').disabled = true;
+    result.innerHTML = '';
+    setStatus(
+      'Generating. The first run downloads about 5GB of model weights, and on CPU a single image takes several minutes.'
+    );
+
+    try {
+      const res = await fetch('/generate/' + mode, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+
+      if (!res.ok || data.success === false) {
+        setStatus(data.details || data.error || 'Generation failed.', true);
+        return;
+      }
+
+      setStatus('Done in ' + (data.device || 'unknown') + ' mode.');
+      const img = document.createElement('img');
+      // Cache-bust so regenerating with the same seed does not show the old file.
+      img.src = data.url + '?t=' + Date.now();
+      img.alt = data.prompt || prompt;
+      result.appendChild(img);
+
+      const meta = document.createElement('div');
+      meta.className = 'meta';
+      meta.textContent = 'seed ' + data.seed + ' · ';
+      const link = document.createElement('a');
+      link.href = data.url;
+      link.textContent = data.filename;
+      meta.appendChild(link);
+      result.appendChild(meta);
+    } catch (err) {
+      setStatus('Could not reach the server: ' + err.message, true);
+    } finally {
+      el('go').disabled = false;
+    }
+  });
+</script>
+</body>
+</html>
