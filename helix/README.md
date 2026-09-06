@@ -1,7 +1,8 @@
-# Helix — knowledge galaxy core
+# Helix — pure core
 
-The pure core of the knowledge galaxy: turning notes into a graph, and ranking
-notes against a question. No Helix imports, no rendering, no network, no keys.
+Logic for Helix that carries no Helix imports: turning notes into a graph,
+ranking them against a question, and deciding who may reach the assistant at
+all. No rendering, no network calls, no keys.
 
 ## Why this lives in the Avernal repo
 
@@ -26,7 +27,13 @@ and the rest) so that the move is a copy, not a port.
 | `persona.ts` | The butler system prompt, notes context, boot greeting |
 | `capture.ts` | "remember that ..." to a real markdown note |
 
-Verify with `npm run verify` (typecheck + 88 tests).
+And under `src/core/access/`:
+
+| File | Responsibility |
+|---|---|
+| `private-network.ts` | Whether a peer address is on a trusted private network |
+
+Verify with `npm run verify` (typecheck + 103 tests).
 
 > Installing needs `--legacy-peer-deps` under npm 10.9.7, which crashes on
 > vitest 4's peer graph. Helix's own toolchain is unaffected.
@@ -80,6 +87,22 @@ slugs are passed in so a second capture never overwrites the first.
 `appendNote` is safe for a live view because ids are positions: appending leaves
 every existing note at its index. Inserting or removing anywhere else renumbers,
 and must not be done while a view is open.
+
+## Keeping Helix off the open internet
+
+`isPrivateAddress` decides whether an address belongs to a network only trusted
+devices can reach: loopback, RFC1918, link-local, IPv6 unique-local, and the
+carrier-grade NAT range Tailscale hands out. Everything else is public.
+
+The rule is default-deny — anything that fails to parse is refused. Wrongly
+allowing an address means the assistant answers a stranger; wrongly refusing one
+means a reconnect. Non-canonical octets are refused for the same reason:
+`0177.0.0.1` is loopback read as octal and nonsense read as decimal, and
+disagreeing parsers are how boundaries get crossed.
+
+`isTrustedPeer` takes the address the socket actually reports. It must never be
+given a forwarded-for header: those are written by the client, so trusting one
+lets anyone claim to be on the LAN by typing it.
 
 ## What is deliberately not here
 
