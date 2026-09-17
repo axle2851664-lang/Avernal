@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local generation data - images, database and downloaded weights never belong
+# in version control.
+outputs/
+models/
+*.db
+*.db-wal
+*.db-shm
+*.safetensors
+*.ckpt

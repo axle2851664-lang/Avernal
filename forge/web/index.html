@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Avernal Forge</title>
+<meta name="description" content="Fully local image generation. No third-party APIs.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230B0B0B'/%3E%3Cpath d='M16 6l8 20h-4.4l-1.5-4h-4.2l-1.5 4H8z' fill='%23D62828'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="mark" aria-hidden="true"></span>
+    <h1>Aver<span>nal</span> Forge</h1>
+  </div>
+  <div class="badges">
+    <span class="pill pill--local" title="Nothing leaves this machine">
+      <span class="dot"></span> 100% local
+    </span>
+    <span class="pill" id="engine-pill" title="Active engine">engine: &hellip;</span>
+    <span class="pill" id="stats-pill" title="Images in your gallery">&hellip;</span>
+    <button class="pill pill--button" id="api-help-btn" title="Use Forge as your API provider">API</button>
+  </div>
+</header>
+
+<main class="layout">
+
+  <!-- ------------------------------------------------------- composer -->
+  <aside class="composer" aria-label="Generation settings">
+    <form id="compose-form">
+
+      <label class="field">
+        <span class="field__label">Prompt</span>
+        <textarea id="prompt" rows="4" placeholder="a crimson desert horizon at sunset, deep shadows" required></textarea>
+      </label>
+
+      <details class="field field--details" id="negative-wrap">
+        <summary>Negative prompt</summary>
+        <textarea id="negative" rows="2" placeholder="blurry, washed out"></textarea>
+      </details>
+
+      <div class="field">
+        <span class="field__label">Model</span>
+        <select id="model"></select>
+        <p class="hint" id="model-hint"></p>
+        <p class="hint hint--warn" id="model-warn" hidden></p>
+      </div>
+
+      <div class="field">
+        <span class="field__label">Size</span>
+        <div class="chips" id="size-chips">
+          <button type="button" class="chip" data-w="512" data-h="512">512²</button>
+          <button type="button" class="chip" data-w="768" data-h="512">768×512</button>
+          <button type="button" class="chip" data-w="512" data-h="768">512×768</button>
+          <button type="button" class="chip" data-w="1024" data-h="1024">1024²</button>
+        </div>
+        <div class="row">
+          <input type="number" id="width" min="64" max="2048" step="8" aria-label="Width">
+          <button type="button" class="icon-btn" id="swap-size" title="Swap width and height" aria-label="Swap width and height"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4L3 8l4 4"/><path d="M3 8h13"/><path d="M17 20l4-4-4-4"/><path d="M21 16H8"/></svg></button>
+          <input type="number" id="height" min="64" max="2048" step="8" aria-label="Height">
+        </div>
+      </div>
+
+      <label class="field">
+        <span class="field__label">Steps <b id="steps-out">24</b></span>
+        <input type="range" id="steps" min="1" max="60" value="24">
+      </label>
+
+      <label class="field">
+        <span class="field__label">Guidance <b id="guidance-out">7.0</b></span>
+        <input type="range" id="guidance" min="0" max="20" step="0.5" value="7">
+      </label>
+
+      <label class="field">
+        <span class="field__label">Images <b id="batch-out">1</b></span>
+        <input type="range" id="batch" min="1" max="8" value="1">
+      </label>
+
+      <div class="field">
+        <span class="field__label">Seed</span>
+        <div class="row">
+          <input type="number" id="seed" min="-1" placeholder="random" aria-label="Seed">
+          <button type="button" class="icon-btn" id="random-seed" title="Randomise seed" aria-label="Randomise seed"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="8.5" cy="8.5" r="1.4" fill="currentColor" stroke="none"/><circle cx="15.5" cy="8.5" r="1.4" fill="currentColor" stroke="none"/><circle cx="8.5" cy="15.5" r="1.4" fill="currentColor" stroke="none"/><circle cx="15.5" cy="15.5" r="1.4" fill="currentColor" stroke="none"/></svg></button>
+        </div>
+      </div>
+
+      <div class="field">
+        <span class="field__label">Sampler</span>
+        <select id="sampler"></select>
+      </div>
+
+      <div class="actions">
+        <button type="submit" class="btn btn--primary" id="generate-btn">Generate</button>
+        <button type="button" class="btn btn--ghost" id="cancel-btn" hidden>Cancel</button>
+      </div>
+      <p class="hint hint--kbd">Ctrl + Enter to generate</p>
+    </form>
+  </aside>
+
+  <!-- ------------------------------------------------------ workspace -->
+  <section class="workspace">
+
+    <div class="stage" id="stage">
+      <div class="stage__empty" id="stage-empty">
+        <h2>Nothing generated yet</h2>
+        <p>Everything below runs on this machine. Try one of these:</p>
+        <div class="suggestions" id="suggestions"></div>
+      </div>
+      <div class="stage__grid" id="stage-grid" hidden></div>
+      <div class="stage__progress" id="stage-progress" hidden>
+        <div class="progress"><div class="progress__bar" id="progress-bar"></div></div>
+        <p class="progress__label"><span id="progress-note">queued</span> <b id="progress-count"></b></p>
+      </div>
+    </div>
+
+    <div class="gallery">
+      <div class="gallery__head">
+        <h2>Gallery</h2>
+        <div class="gallery__tools">
+          <input type="search" id="gallery-search" placeholder="Search prompts" aria-label="Search gallery">
+          <button type="button" class="chip" id="fav-filter" aria-pressed="false">&#9733; Favourites</button>
+        </div>
+      </div>
+      <div class="grid" id="gallery-grid"></div>
+      <p class="empty" id="gallery-empty" hidden>No images yet.</p>
+      <button type="button" class="btn btn--ghost btn--wide" id="load-more" hidden>Load more</button>
+    </div>
+
+  </section>
+</main>
+
+<!-- ---------------------------------------------------------- lightbox -->
+<div class="lightbox" id="lightbox" hidden role="dialog" aria-modal="true" aria-label="Image details">
+  <button class="lightbox__close" id="lightbox-close" aria-label="Close">&times;</button>
+  <button class="lightbox__nav lightbox__nav--prev" id="lightbox-prev" aria-label="Previous">&#8249;</button>
+  <button class="lightbox__nav lightbox__nav--next" id="lightbox-next" aria-label="Next">&#8250;</button>
+  <div class="lightbox__inner">
+    <img id="lightbox-img" alt="">
+    <div class="lightbox__meta">
+      <h3 id="lightbox-prompt"></h3>
+      <dl id="lightbox-dl"></dl>
+      <div class="lightbox__actions">
+        <a class="btn btn--primary" id="lightbox-download" download>Download</a>
+        <button type="button" class="btn btn--ghost" id="lightbox-reuse">Reuse settings</button>
+        <button type="button" class="btn btn--ghost" id="lightbox-fav">&#9733; Favourite</button>
+        <button type="button" class="btn btn--danger" id="lightbox-delete">Delete</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- --------------------------------------------------------- API panel -->
+<div class="lightbox" id="api-panel" hidden role="dialog" aria-modal="true" aria-label="API details">
+  <button class="lightbox__close" id="api-close" aria-label="Close">&times;</button>
+  <div class="lightbox__inner lightbox__inner--doc">
+    <div class="doc">
+      <h3>Forge is your image provider</h3>
+      <p>This server speaks an OpenAI-compatible images API. Point any client at it and generation happens here, offline.</p>
+      <pre><code id="api-curl"></code></pre>
+      <pre><code id="api-python"></code></pre>
+      <p class="hint">Endpoints: <code>POST /v1/images/generations</code>, <code>GET /v1/models</code>, plus the native <code>/api/*</code> routes with live progress over <code>GET /api/events</code>.</p>
+    </div>
+  </div>
+</div>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
+<script src="/app.js"></script>
+</body>
+</html>

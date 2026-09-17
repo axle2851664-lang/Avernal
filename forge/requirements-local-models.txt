@@ -1,0 +1,16 @@
+# Optional extras: install these only if you want real Stable Diffusion / SDXL
+# output instead of the built-in procedural engine.
+#
+#   pip install -r requirements-local-models.txt
+#
+# Forge itself needs nothing beyond the Python standard library.
+#
+# For NVIDIA GPUs, install the CUDA build of torch first, e.g.:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu124
+
+torch>=2.1
+diffusers>=0.27
+transformers>=4.38
+accelerate>=0.27
+safetensors>=0.4
+Pillow>=10.0
