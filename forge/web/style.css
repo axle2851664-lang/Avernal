@@ -48,6 +48,9 @@ body {
 }
 
 h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: -0.01em; }
+/* Cards are <figure>s, which carry a 40px UA side margin that would otherwise
+   leave every card narrower than its grid column. */
+figure, figcaption { margin: 0; }
 button, input, select, textarea { font: inherit; color: inherit; }
 a { color: inherit; }
 
@@ -504,3 +507,161 @@ input[type="range"]::-moz-range-thumb {
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
+
+/* ------------------------------------------------- live references ----- */
+
+.tabs { display: flex; gap: 4px; }
+.tab {
+  padding: 7px 14px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color .15s, background .15s, border-color .15s;
+}
+.tab:hover { color: var(--text); }
+.tab.is-active {
+  color: #fff;
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.netbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+.netbar__right { display: flex; gap: 8px; }
+
+.switch { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; font-size: 14px; }
+.switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+.switch__track {
+  width: 40px; height: 22px;
+  border-radius: 999px;
+  background: var(--line);
+  border: 1px solid #333;
+  position: relative;
+  transition: background .18s, border-color .18s;
+  flex: none;
+}
+.switch__dot {
+  position: absolute;
+  top: 2px; left: 2px;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: var(--muted);
+  transition: transform .18s, background .18s;
+}
+.switch input:checked + .switch__track { background: var(--accent-soft); border-color: var(--accent); }
+.switch input:checked + .switch__track .switch__dot { transform: translateX(18px); background: var(--accent); }
+.switch input:focus-visible + .switch__track { box-shadow: 0 0 0 3px var(--accent-soft); }
+
+.ref-search { display: flex; gap: 8px; margin: 16px 0 6px; flex-wrap: wrap; }
+.ref-search select { width: 190px; flex: none; }
+.ref-search input { flex: 1; min-width: 180px; }
+.ref-search .btn { flex: 0 0 auto; padding: 11px 22px; }
+
+.subhead {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--muted);
+  margin: 26px 0 12px;
+}
+
+.card--ref { aspect-ratio: 4 / 3; cursor: pointer; }
+.card--ref .card__label { opacity: 1; padding-top: 26px; }
+.card__src {
+  position: absolute; top: 7px; left: 8px;
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em;
+  padding: 3px 7px; border-radius: 999px;
+  background: rgba(0,0,0,.72); color: #ddd;
+}
+/* Text-only results (a listing with no photo, an article with no image).
+   Clamped rather than centred, so it never runs under the source badge. */
+.card__none {
+  height: 100%;
+  padding: 30px 12px 28px;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--muted-dim);
+  background: var(--panel-2);
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Reference cards carry more text than gallery thumbnails, so give them room. */
+#ref-grid, #saved-grid {
+  grid-template-columns: repeat(auto-fill, minmax(178px, 1fr));
+}
+
+/* the reference attached to the next generation */
+.field--reference { border: 1px solid var(--accent); border-radius: var(--radius-sm); padding: 12px; }
+.reference-card { display: flex; gap: 10px; align-items: flex-start; }
+.reference-card img {
+  width: 64px; height: 64px; flex: none;
+  object-fit: cover; border-radius: 9px; background: var(--bg);
+}
+.reference-card__body { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.reference-card__body strong {
+  font-size: 13px; font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.reference-card__meta { font-size: 11.5px; color: var(--muted-dim); }
+.swatches { display: flex; gap: 3px; margin-top: 4px; }
+.swatches span { width: 16px; height: 16px; border-radius: 4px; border: 1px solid #000; }
+
+.checkline {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12.5px; color: var(--muted); margin-top: 10px; cursor: pointer;
+}
+.checkline input { accent-color: var(--accent); width: 15px; height: 15px; }
+.checkline .hint { margin: 0; }
+
+.link-btn {
+  background: none; border: none; padding: 0;
+  color: var(--accent); cursor: pointer;
+  font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
+}
+.link-btn:hover { text-decoration: underline; }
+
+/* connector setup + network log */
+.connector {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 14px;
+  margin-bottom: 10px;
+}
+.connector__head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.connector__head strong { font-size: 14px; }
+.connector__state { font-size: 11.5px; color: var(--muted-dim); }
+.connector__state.is-ready { color: var(--ok); }
+.connector__state.is-missing { color: #b08828; }
+.connector p { font-size: 12.5px; color: var(--muted); margin: 8px 0 0; }
+.connector__note { color: #b08828 !important; }
+.connector__fields { display: grid; gap: 8px; margin-top: 10px; }
+.connector__fields input { padding: 9px 11px; font-size: 13px; }
+.connector__actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.connector__actions .btn { flex: 0 0 auto; padding: 8px 14px; font-size: 13px; }
+
+.netlog { width: 100%; border-collapse: collapse; font-size: 12px; }
+.netlog th, .netlog td {
+  text-align: left; padding: 7px 8px;
+  border-bottom: 1px solid var(--line-soft);
+  font-family: var(--mono);
+}
+.netlog th { color: var(--muted-dim); font-family: var(--font); text-transform: uppercase; font-size: 10.5px; letter-spacing: .06em; }
+.netlog td.is-blocked { color: #e06c6c; }
+.netlog td.url { word-break: break-all; }

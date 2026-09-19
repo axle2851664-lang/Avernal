@@ -108,10 +108,38 @@ def _hsl_to_rgb(h: float, s: float, ell: float) -> tuple[int, int, int]:
     return channel(h + 1 / 3), channel(h), channel(h - 1 / 3)
 
 
+def _parse_palette(colours: list[str] | None) -> list[tuple[int, int, int]]:
+    """Accept #rrggbb strings from a sampled reference image.
+
+    Returns [] unless at least two parse, so a bad payload falls back to the
+    prompt-derived palette rather than rendering something broken.
+    """
+    if not colours:
+        return []
+    parsed: list[tuple[int, int, int]] = []
+    for value in colours[:8]:
+        text = str(value).strip().lstrip("#")
+        if len(text) == 3:
+            text = "".join(ch * 2 for ch in text)
+        if len(text) != 6:
+            continue
+        try:
+            parsed.append(tuple(int(text[i:i + 2], 16) for i in (0, 2, 4)))
+        except ValueError:
+            continue
+    if len(parsed) < 2:
+        return []
+    # The renderer maps a 0..1 field through this ramp, so it has to run dark
+    # to light or the image reads inverted.
+    parsed.sort(key=lambda c: 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2])
+    return parsed
+
+
 class Style:
     """Everything the renderer derived from the prompt, in one place."""
 
-    def __init__(self, prompt: str, negative: str, rng: random.Random) -> None:
+    def __init__(self, prompt: str, negative: str, rng: random.Random,
+                 palette: list[str] | None = None) -> None:
         words = _tokens(prompt)
         word_set = set(words)
         avoid = set(_tokens(negative))
@@ -167,7 +195,13 @@ class Style:
             self.warp += 0.35
         self.grain = 5 if soft else (14 if sharp else 9)
         self.glow = bright or self.kind == "cosmic"
-        self.palette = self._build_palette(rng)
+        supplied = _parse_palette(palette)
+        self.palette = supplied or self._build_palette(rng)
+        self.from_reference = bool(supplied)
+        if supplied:
+            # A sampled palette already carries the reference's mood; leaving
+            # the prompt-derived contrast on top of it double-counts.
+            self.contrast = min(self.contrast, 1.05)
         self.lut = self._build_lut()
 
     def _build_palette(self, rng: random.Random) -> list[tuple[int, int, int]]:
@@ -406,7 +440,7 @@ class ProceduralEngine(Engine):
     ) -> tuple[bytes, dict[str, Any]]:
         width, height = request.width, request.height
         rng = random.Random(f"{seed}:{request.prompt}:{request.sampler}")
-        style = Style(request.prompt, request.negative, rng)
+        style = Style(request.prompt, request.negative, rng, palette=request.palette)
         octaves = 2 + max(0, min(5, request.steps // 8))
         total_steps = 10
         fw, fh = self._field_size(width, height, request.steps)
@@ -497,6 +531,7 @@ class ProceduralEngine(Engine):
             "palette": ["#%02x%02x%02x" % c for c in style.palette],
             "octaves": octaves,
             "field": f"{fw}x{fh}",
+            "palette_source": "reference" if style.from_reference else "prompt",
         }
         return bytes(out), meta
 

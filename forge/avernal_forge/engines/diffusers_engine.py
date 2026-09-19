@@ -129,7 +129,6 @@ class DiffusersEngine(Engine):
 
         import diffusers  # noqa: PLC0415
 
-        torch = self._torch()
         device = self.resolve_device()
         dtype = self._dtype()
         path = Path(model["path"])

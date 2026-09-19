@@ -40,6 +40,11 @@ class GenerationRequest:
     model: str | None = None
     init_image: bytes | None = None
     strength: float = 0.6
+    #: Hex colours pulled from a reference image, steering the procedural
+    #: engine's palette in place of the one derived from the prompt.
+    palette: list[str] | None = None
+    #: The saved reference this request was built from, for provenance.
+    reference_id: str | None = None
 
     def seed_for(self, index: int) -> int:
         """Seeds within a batch walk forward so a batch is reproducible."""
@@ -56,6 +61,7 @@ class GenerationRequest:
             "guidance": self.guidance,
             "sampler": self.sampler,
             "model": self.model,
+            "palette": self.palette,
         }
 
 

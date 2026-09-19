@@ -4,9 +4,15 @@ Image generation that runs entirely on your own machine — and serves its own
 API, so other tools can use **Forge** as their image provider instead of a
 hosted service.
 
-No API keys. No accounts. No outbound requests. The server never contacts a
-model hub, a telemetry endpoint, or anything else: if a model is not already on
-your disk, Forge will not fetch it for you.
+**Generation never touches the network.** Prompts, models and images stay on
+your machine, always. There is no telemetry, no account, and no model hub: if a
+model is not already on your disk, Forge will not fetch it for you.
+
+Separately, and switched **off by default**, Forge can pull in live reference
+material - Wikipedia, Wikimedia Commons, Openverse, Reddit, Pinterest, Mastodon,
+Bluesky, MLS listings, or any page you paste. That traffic goes through one
+audited gate with a host allowlist, and you can see every request it made. See
+[Live references](#live-references).
 
 ![The Forge studio](docs/studio.png)
 
@@ -65,6 +71,83 @@ Forge picks CUDA, then MPS, then CPU. Override with `--device`, and add
 
 ---
 
+## Live references
+
+Turn on **Live references** in the studio (or start with `--online`) and Forge
+can fetch material to work from: an article, a photograph, a listing, a post.
+Attach one and it feeds generation two ways - its colours become the palette,
+and with Stable Diffusion weights installed it can be the starting image for
+img2img.
+
+Palettes are sampled in your browser from the saved copy, so it works for every
+image format the page can display.
+
+![Live references](docs/references.png)
+
+### What you can connect
+
+| Source | Needs | What you get |
+| --- | --- | --- |
+| **Wikipedia** | nothing | Article summaries and lead images |
+| **Wikimedia Commons** | nothing | Freely licensed photography, with attribution |
+| **Openverse** | nothing (token optional) | Several hundred million openly licensed images |
+| **Web page** | nothing | Paste any URL; title, description and preview image |
+| **Reddit** | your own app id + secret | Public post search and images, via the official OAuth API |
+| **Pinterest** | your own access token | Your own pins and boards |
+| **Mastodon** | an instance host | Public hashtag timelines and their images |
+| **Bluesky** | handle + app password | Public post search and images |
+| **Real estate** | MLS/Bridge endpoint + token | Live listings and photos over the RESO Web API |
+
+Keys are stored in `~/.avernal-forge/connectors.json` with `0600` permissions,
+or supplied as `AVERNAL_FORGE_<CONNECTOR>_<FIELD>` environment variables if you
+would rather not write them to disk. They are never returned by the API, never
+logged, and never sent anywhere except the service they belong to.
+
+Check that the live endpoints actually answer:
+
+```bash
+python3 run.py connectors           # what is set up
+python3 run.py connectors --check   # make one real request per connector
+```
+
+### What is deliberately missing
+
+Some platforms have no route that an app can use honestly, so Forge does not
+pretend otherwise:
+
+- **Zillow** retired its public listings API in 2021, and both its terms and its
+  robots.txt prohibit scraping listing pages. The route that does exist is the
+  **RESO Web API** feed your MLS or [Bridge Interactive](https://bridgedataoutput.com/)
+  (a Zillow Group company) issues to licensed brokers, agents and their vendors -
+  that is the "Real estate" connector above.
+- **Pinterest** has no site-wide search in its API. Only your own pins and boards
+  are reachable, which is what the connector uses.
+- **Instagram** retired the Basic Display API in 2024; the Graph API covers
+  business and creator accounts only.
+- **TikTok** requires per-app approval, and **X** charges for API access.
+
+For any of these, the honest paths are the same two: use the official API with
+your own approved credentials, or paste a URL you have the rights to use.
+
+### How the network gate works
+
+Every outbound request goes through one chokepoint that:
+
+- refuses everything while live references are off;
+- allows only hosts belonging to a connector you enabled **and** configured;
+- re-checks the allowlist on every redirect, so a 302 cannot walk off it;
+- refuses private, loopback and link-local addresses, so a misconfigured
+  endpoint cannot be pointed at cloud metadata;
+- caps response size and time;
+- records every attempt, with credentials stripped, in **Network log**.
+
+Two things worth knowing. Search-result thumbnails are loaded directly by your
+browser from the source site, exactly as on any web page, so they do not appear
+in the log; anything Forge *saves* is downloaded through the gate and does.
+And a URL you paste is judged on the site's robots.txt rather than the
+allowlist, because you chose it - sites that disallow automated access are
+refused, and Forge tells you which and why.
+
 ## Forge as your image provider
 
 The server speaks an OpenAI-compatible images API, so existing clients work
@@ -109,6 +192,22 @@ present and ignored by clients that do not send them.
 | `DELETE` | `/api/gallery/{id}` | Delete the record and the file on disk |
 | `GET` | `/images/{file}` | The generated PNGs |
 
+Live references (all refuse to reach anything while networking is off):
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/connectors` | Connector state, and which hosts are reachable |
+| `POST` | `/api/connectors/online` | Turn live references on or off |
+| `POST` | `/api/connectors/{id}/enabled` | Switch one connector on or off |
+| `POST` · `DELETE` | `/api/connectors/{id}/credentials` | Store or clear your keys |
+| `POST` | `/api/connectors/{id}/check` | One live request, for diagnostics |
+| `GET` | `/api/references/search` | `connector`, `q`, `limit` |
+| `POST` | `/api/references/import` | Import a pasted `url` |
+| `GET` · `POST` | `/api/references` | List, or save one locally |
+| `DELETE` | `/api/references/{id}` | Forget a saved reference |
+| `GET` | `/api/network/log` | Every outbound request, credentials stripped |
+| `GET` | `/refs/{file}` | Saved reference images |
+
 ### Provider API
 
 | Method | Path | Purpose |
@@ -120,7 +219,8 @@ Generation parameters and their limits: `prompt` (required), `negative`,
 `width`/`height` (64–4096, rounded to a multiple of 8, max 8.4M pixels total),
 `steps` (1–150), `guidance` (0–30), `batch`/`n` (1–8), `seed` (−1 for random),
 `sampler`, `model`, `engine`, plus `init_image` + `strength` for img2img on the
-diffusers engine.
+diffusers engine. A request may also carry `palette` (hex colours sampled from a
+reference) and `reference_id` (a saved reference to start the image from).
 
 Every PNG carries its own recipe as embedded metadata, so an image dragged out
 of the outputs folder still knows the prompt, seed and settings that made it.
@@ -135,6 +235,8 @@ python3 run.py serve --port 9000 --open         # pick a port, open a browser
 python3 run.py generate "a quiet harbour at dusk" -o harbour.png
 python3 run.py generate "twin moons" -n 4 --size 768x512 --steps 30 --seed 42
 python3 run.py models                           # what weights are on this machine
+python3 run.py connectors                       # live reference sources
+python3 run.py connectors --check --online      # do those endpoints actually answer?
 ```
 
 Useful `serve` flags:
@@ -150,16 +252,26 @@ Useful `serve` flags:
 | `--api-key` | Require a bearer token on API requests |
 | `--cors` | Allow cross-origin browser calls (off by default) |
 | `--offload` | Enable model CPU offload to save VRAM |
+| `--online` | Allow live connectors to fetch reference material |
+| `--allow-private-hosts` | Let connectors reach LAN hosts (a self-hosted Mastodon) |
 
 ---
 
 ## Staying local
 
+- **Generation never uses the network**, whatever else is switched on. Your
+  prompts and your images are not sent anywhere, ever.
+- Live references are **off until you turn them on**, and only reach hosts
+  belonging to a connector you enabled and configured.
 - Forge binds to `127.0.0.1` by default: nothing outside your machine can reach it.
 - CORS is **off** unless you pass `--cors`, so a web page you happen to be
   visiting cannot drive your Forge instance.
 - Model loading is `local_files_only=True` on every path.
 - There is no telemetry, no update check and no analytics.
+
+The studio's badge tells you which mode you are in: *100% local* when nothing
+can leave, *generation stays local* plus a *network on* marker when connectors
+are live.
 
 If you bind to a LAN address, set `--api-key` as well — the server warns you at
 startup when you do not. The studio prompts for that key and stores it in the
@@ -174,27 +286,51 @@ browser; the event stream accepts it as a `?key=` parameter because
 forge/
 ├── run.py                       zero-install launcher
 ├── avernal_forge/
-│   ├── __main__.py              CLI: serve / generate / models
+│   ├── __main__.py              CLI: serve / generate / models / connectors
 │   ├── config.py                paths and generation limits
 │   ├── server.py                HTTP server, REST + OpenAI-compatible API
 │   ├── jobs.py                  queue, progress, cancellation, event bus
 │   ├── storage.py               SQLite gallery
 │   ├── models.py                local weight discovery (no network)
 │   ├── png.py                   PNG encoder with embedded metadata
-│   └── engines/
-│       ├── base.py              engine contract
-│       ├── procedural.py        built-in renderer, zero dependencies
-│       └── diffusers_engine.py  local Stable Diffusion / SDXL
+│   ├── engines/
+│   │   ├── base.py              engine contract
+│   │   ├── procedural.py        built-in renderer, zero dependencies
+│   │   └── diffusers_engine.py  local Stable Diffusion / SDXL
+│   └── connectors/
+│       ├── net.py               the network gate: allowlist, caps, audit log
+│       ├── base.py              connector contract
+│       ├── store.py             connector settings and your keys (0600)
+│       ├── wikimedia.py         Wikipedia and Commons
+│       ├── openverse.py         openly licensed image search
+│       ├── webpage.py           paste-a-URL import, robots.txt aware
+│       ├── reddit.py            official OAuth API
+│       ├── pinterest.py         official v5 API, your own pins
+│       ├── social.py            Mastodon and Bluesky
+│       └── reso.py              licensed MLS listings
 ├── web/                         the studio UI (no build step, no CDN)
-└── tests/test_smoke.py          end-to-end tests
+└── tests/
+    ├── test_smoke.py            end-to-end tests against a live server
+    ├── test_connectors.py       connectors and the network gate
+    └── mock_upstreams.py        recorded upstream response shapes
 ```
 
 ## Tests
 
 ```bash
-python3 tests/test_smoke.py
+python3 -m unittest discover -s tests
 ```
 
-28 tests covering generation, batching, reproducibility, cancellation, the
-gallery, the provider API, request validation, path-traversal protection and
-API-key enforcement — all against a live server, with no dependencies.
+64 tests, no dependencies:
+
+- **Generation** - batching, seed reproducibility, cancellation, the gallery,
+  the provider API, request validation, path-traversal protection and API-key
+  enforcement, all against a live server.
+- **Connectors** - every connector parsed against recorded upstream response
+  shapes, plus the gate itself: offline refusal, allowlist enforcement,
+  redirects that try to leave it, size caps, private-address refusal, and the
+  guarantee that credentials never reach the audit log or any response.
+
+The connector tests deliberately do not call the real services, so they run
+anywhere - including with no network at all. `python3 run.py connectors --check`
+is what verifies the live endpoints.

@@ -45,6 +45,13 @@ class Config:
     sd_config: str | None = None
     #: Overrides the default <home>/models location when set.
     models_dir_override: Path | None = None
+    #: Live connectors are off until the user turns them on. Generation itself
+    #: never uses the network either way.
+    online: bool = False
+    #: True when --online was passed, which overrides the stored setting.
+    online_forced: bool = False
+    #: Permits loopback/private targets. Only for tests and self-hosted instances.
+    allow_private_hosts: bool = False
     quiet: bool = False
 
     @property
@@ -54,6 +61,14 @@ class Config:
     @property
     def models_dir(self) -> Path:
         return self.models_dir_override or (self.home / "models")
+
+    @property
+    def refs_dir(self) -> Path:
+        return self.home / "references"
+
+    @property
+    def connectors_path(self) -> Path:
+        return self.home / "connectors.json"
 
     @property
     def db_path(self) -> Path:
@@ -67,6 +82,7 @@ class Config:
         self.home.mkdir(parents=True, exist_ok=True)
         self.outputs_dir.mkdir(parents=True, exist_ok=True)
         self.models_dir.mkdir(parents=True, exist_ok=True)
+        self.refs_dir.mkdir(parents=True, exist_ok=True)
 
     @property
     def base_url(self) -> str:

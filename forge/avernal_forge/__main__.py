@@ -33,6 +33,11 @@ def _add_common(parser: argparse.ArgumentParser) -> None:
                         help="pipeline config folder for single-file checkpoints")
     parser.add_argument("--offload", action="store_true",
                         help="enable model CPU offload to save VRAM")
+    parser.add_argument("--online", action="store_true",
+                        help="allow live connectors to fetch reference material")
+    parser.add_argument("--allow-private-hosts", action="store_true",
+                        dest="allow_private_hosts",
+                        help="let connectors reach LAN/loopback hosts (self-hosted instances)")
     parser.add_argument("--quiet", action="store_true", help="less logging")
 
 
@@ -72,6 +77,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     listing = subparsers.add_parser("models", help="list the models found on this machine")
     _add_common(listing)
+
+    connectors = subparsers.add_parser(
+        "connectors", help="show live connectors, and optionally test them")
+    connectors.add_argument("--check", action="store_true",
+                            help="make one real request per connector and report")
+    connectors.add_argument("--only", help="check a single connector by id")
+    _add_common(connectors)
     return parser
 
 
@@ -81,8 +93,12 @@ def config_from_args(args: argparse.Namespace) -> Config:
         config.home = args.home.expanduser()
     if getattr(args, "models_dir", None):
         config.models_dir_override = args.models_dir.expanduser()
+    if getattr(args, "online", False):
+        config.online_forced = True
+        config.online = True
     for name in ("device", "engine", "model", "sd_config", "offload", "quiet",
-                 "host", "port", "workers", "api_key", "cors"):
+                 "host", "port", "workers", "api_key", "cors",
+                 "allow_private_hosts"):
         value = getattr(args, name, None)
         if value is not None:
             setattr(config, name, value)
@@ -205,9 +221,62 @@ def cmd_models(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_connectors(args: argparse.Namespace) -> int:
+    from .connectors import ConnectorHub, ConnectorStore
+
+    config = config_from_args(args)
+    hub = ConnectorHub(config, ConnectorStore(config.connectors_path))
+    described = hub.describe()
+
+    print(f"Live connectors are {'ON' if described['online'] else 'OFF'}"
+          + (" (forced by --online)" if described["online_forced"] else ""))
+    print(f"Settings   {config.connectors_path}")
+    print(f"Reachable  {', '.join(described['allowed_domains']) or 'nothing'}")
+    print("\nGeneration never uses the network, whatever is switched on here.\n")
+
+    for connector in described["connectors"]:
+        if connector["configured"]:
+            state = "ready" if connector["enabled"] else "off"
+        else:
+            state = "needs " + ", ".join(connector["missing"])
+        print(f"  {connector['id']:<11} {state:<32} {connector['label']}")
+        if connector["note"]:
+            print(f"              note: {connector['note']}")
+        if not connector["configured"] and connector["docs_url"]:
+            print(f"              keys: {connector['docs_url']}")
+
+    if not args.check:
+        print("\nRun with --check to make one real request per connector.")
+        return 0
+
+    if not described["online"]:
+        print("\nCannot check anything while live connectors are off. "
+              "Re-run with --online.")
+        return 1
+
+    targets = [c["id"] for c in described["connectors"]
+               if c["enabled"] and c["configured"]]
+    if args.only:
+        targets = [t for t in targets if t == args.only]
+        if not targets:
+            print(f"\n{args.only!r} is not an enabled, configured connector.")
+            return 1
+
+    print("\nChecking live endpoints:")
+    failures = 0
+    for connector_id in targets:
+        result = hub.probe(connector_id)
+        mark = "ok  " if result["ok"] else "FAIL"
+        print(f"  [{mark}] {connector_id:<11} {result['ms']:>5}ms  {result['detail']}")
+        failures += 0 if result["ok"] else 1
+
+    print(f"\n{len(targets) - failures}/{len(targets)} connector(s) responded.")
+    return 1 if failures else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
-    known = {"serve", "generate", "models"}
+    known = {"serve", "generate", "models", "connectors"}
     if not argv or (argv[0].startswith("-") and argv[0] not in ("-h", "--help", "--version")):
         argv.insert(0, "serve")  # `forge --port 9000` should still serve
     elif argv[0] not in known and not argv[0].startswith("-"):
@@ -215,7 +284,13 @@ def main(argv: list[str] | None = None) -> int:
 
     args = build_parser().parse_args(argv)
     command = args.command or "serve"
-    return {"serve": cmd_serve, "generate": cmd_generate, "models": cmd_models}[command](args)
+    commands = {
+        "serve": cmd_serve,
+        "generate": cmd_generate,
+        "models": cmd_models,
+        "connectors": cmd_connectors,
+    }
+    return commands[command](args)
 
 
 if __name__ == "__main__":

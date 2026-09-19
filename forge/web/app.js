@@ -21,7 +21,8 @@
     lightboxIndex: -1,
     lightboxSource: [],
     events: null,
-    retry: 0
+    retry: 0,
+    reference: null
   };
 
   var SUGGESTIONS = [
@@ -325,6 +326,7 @@
     $("lightbox-fav").addEventListener("click", toggleFavourite);
     $("lightbox-delete").addEventListener("click", deleteCurrent);
 
+    $("reference-clear").addEventListener("click", clearReference);
     $("api-help-btn").addEventListener("click", function () { $("api-panel").hidden = false; });
     $("api-close").addEventListener("click", closeApiPanel);
     $("api-panel").addEventListener("click", function (event) {
@@ -360,6 +362,16 @@
     if (selected && selected.dataset.engine) {
       payload.engine = selected.dataset.engine;
       payload.model = selected.value;
+    }
+
+    var reference = state.reference;
+    if (reference) {
+      if ($("reference-palette").checked && reference.palette && reference.palette.length > 1) {
+        payload.palette = reference.palette;
+      }
+      if ($("reference-init").checked && !$("reference-init").disabled) {
+        payload.reference_id = reference.id;
+      }
     }
 
     api("/api/generate", { method: "POST", body: payload })
@@ -647,6 +659,58 @@
     $("gallery-empty").hidden = state.items.length > 0;
   }
 
+
+  /* -------------------------------------------------------- references */
+
+  function setReference(record, palette) {
+    state.reference = {
+      id: record.id,
+      title: record.title || "Untitled",
+      source: record.source || "",
+      license: record.license || "",
+      url: record.local_url || "",
+      palette: palette || []
+    };
+
+    $("reference-thumb").src = state.reference.url;
+    $("reference-thumb").alt = state.reference.title;
+    $("reference-title").textContent = state.reference.title;
+    $("reference-meta").textContent = [state.reference.source, state.reference.license]
+      .filter(Boolean).join(" · ");
+
+    var swatches = $("reference-swatches");
+    swatches.innerHTML = "";
+    (state.reference.palette || []).forEach(function (colour) {
+      var chip = document.createElement("span");
+      chip.style.background = colour;
+      chip.title = colour;
+      swatches.appendChild(chip);
+    });
+
+    var hasPalette = state.reference.palette.length > 1;
+    $("reference-palette").checked = hasPalette;
+    $("reference-palette").disabled = !hasPalette;
+
+    // img2img needs a diffusion model; the procedural engine cannot start
+    // from an image, so the control says so rather than failing later.
+    var engine = state.config && (state.config.engines || []).filter(function (e) {
+      return e.id === state.config.default_engine;
+    })[0];
+    var canInit = !!(engine && engine.neural) && !!state.reference.url;
+    $("reference-init").disabled = !canInit;
+    $("reference-init").checked = false;
+    $("reference-init-hint").textContent = canInit
+      ? ""
+      : "(needs Stable Diffusion weights)";
+
+    $("reference-slot").hidden = false;
+  }
+
+  function clearReference() {
+    state.reference = null;
+    $("reference-slot").hidden = true;
+  }
+
   /* --------------------------------------------------------- API panel */
 
   function renderApiDocs() {
@@ -661,6 +725,21 @@
       "image = client.images.generate(prompt=\"a crimson desert horizon\",\n" +
       "                               size=\"512x512\")";
   }
+
+  window.ForgeApp = {
+    api: api,
+    toast: toast,
+    setReference: setReference,
+    clearReference: clearReference,
+    appendPrompt: function (text) {
+      var field = $("prompt");
+      var current = field.value.trim();
+      field.value = current ? current + ", " + text : text;
+      field.focus();
+      saveSettings();
+    },
+    config: function () { return state.config; }
+  };
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", boot);

@@ -12,3 +12,7 @@ models/
 *.db-shm
 *.safetensors
 *.ckpt
+
+# Connector settings hold your own API keys.
+connectors.json
+references/

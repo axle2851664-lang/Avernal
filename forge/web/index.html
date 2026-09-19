@@ -16,8 +16,8 @@
     <h1>Aver<span>nal</span> Forge</h1>
   </div>
   <div class="badges">
-    <span class="pill pill--local" title="Nothing leaves this machine">
-      <span class="dot"></span> 100% local
+    <span class="pill pill--local" id="local-pill" title="Nothing leaves this machine">
+      <span class="dot"></span> <span id="local-pill-text">100% local</span>
     </span>
     <span class="pill" id="engine-pill" title="Active engine">engine: &hellip;</span>
     <span class="pill" id="stats-pill" title="Images in your gallery">&hellip;</span>
@@ -40,6 +40,29 @@
         <summary>Negative prompt</summary>
         <textarea id="negative" rows="2" placeholder="blurry, washed out"></textarea>
       </details>
+
+      <div class="field field--reference" id="reference-slot" hidden>
+        <span class="field__label">
+          Reference
+          <button type="button" class="link-btn" id="reference-clear">clear</button>
+        </span>
+        <div class="reference-card">
+          <img id="reference-thumb" alt="">
+          <div class="reference-card__body">
+            <strong id="reference-title"></strong>
+            <span class="reference-card__meta" id="reference-meta"></span>
+            <div class="swatches" id="reference-swatches"></div>
+          </div>
+        </div>
+        <label class="checkline">
+          <input type="checkbox" id="reference-palette" checked>
+          Use its colours
+        </label>
+        <label class="checkline" id="reference-init-line">
+          <input type="checkbox" id="reference-init">
+          Use as starting image <span class="hint" id="reference-init-hint"></span>
+        </label>
+      </div>
 
       <div class="field">
         <span class="field__label">Model</span>
@@ -117,15 +140,51 @@
 
     <div class="gallery">
       <div class="gallery__head">
-        <h2>Gallery</h2>
-        <div class="gallery__tools">
+        <div class="tabs" role="tablist">
+          <button type="button" class="tab is-active" id="tab-gallery" role="tab" aria-selected="true">Gallery</button>
+          <button type="button" class="tab" id="tab-references" role="tab" aria-selected="false">Live references</button>
+        </div>
+        <div class="gallery__tools" id="gallery-tools">
           <input type="search" id="gallery-search" placeholder="Search prompts" aria-label="Search gallery">
           <button type="button" class="chip" id="fav-filter" aria-pressed="false">&#9733; Favourites</button>
         </div>
       </div>
-      <div class="grid" id="gallery-grid"></div>
-      <p class="empty" id="gallery-empty" hidden>No images yet.</p>
-      <button type="button" class="btn btn--ghost btn--wide" id="load-more" hidden>Load more</button>
+      <div id="panel-gallery">
+        <div class="grid" id="gallery-grid"></div>
+        <p class="empty" id="gallery-empty" hidden>No images yet.</p>
+        <button type="button" class="btn btn--ghost btn--wide" id="load-more" hidden>Load more</button>
+      </div>
+
+      <div id="panel-references" hidden>
+        <div class="netbar">
+          <label class="switch">
+            <input type="checkbox" id="online-toggle">
+            <span class="switch__track"><span class="switch__dot"></span></span>
+            <span id="online-label">Live connectors off</span>
+          </label>
+          <div class="netbar__right">
+            <button type="button" class="chip" id="connectors-setup">Connectors</button>
+            <button type="button" class="chip" id="network-log-btn">Network log</button>
+          </div>
+        </div>
+        <p class="hint" id="net-note">
+          Generation always stays on this machine. Turning this on only lets the
+          connectors below fetch reference material.
+        </p>
+
+        <div class="ref-search">
+          <select id="ref-connector" aria-label="Source"></select>
+          <input type="search" id="ref-query" placeholder="Search for reference material" aria-label="Search references">
+          <button type="button" class="btn btn--primary" id="ref-search-btn">Search</button>
+        </div>
+        <p class="hint" id="ref-hint"></p>
+
+        <div class="grid" id="ref-grid"></div>
+        <p class="empty" id="ref-empty">Pick a source and search to pull in live material.</p>
+
+        <h3 class="subhead" id="saved-head" hidden>Saved references</h3>
+        <div class="grid" id="saved-grid"></div>
+      </div>
     </div>
 
   </section>
@@ -152,6 +211,29 @@
 </div>
 
 <!-- --------------------------------------------------------- API panel -->
+<div class="lightbox" id="connectors-panel" hidden role="dialog" aria-modal="true" aria-label="Connectors">
+  <button class="lightbox__close" id="connectors-close" aria-label="Close">&times;</button>
+  <div class="lightbox__inner lightbox__inner--doc">
+    <div class="doc">
+      <h3>Live connectors</h3>
+      <p>Each one reaches only its own hosts, and only while live connectors are on. Your keys stay on this machine.</p>
+      <div id="connector-list"></div>
+    </div>
+  </div>
+</div>
+
+<div class="lightbox" id="network-panel" hidden role="dialog" aria-modal="true" aria-label="Network log">
+  <button class="lightbox__close" id="network-close" aria-label="Close">&times;</button>
+  <div class="lightbox__inner lightbox__inner--doc">
+    <div class="doc">
+      <h3>Network log</h3>
+      <p>Every outbound request Forge has made this session, newest first. Credentials are stripped.</p>
+      <p class="hint" id="allowlist-note"></p>
+      <div id="network-entries"></div>
+    </div>
+  </div>
+</div>
+
 <div class="lightbox" id="api-panel" hidden role="dialog" aria-modal="true" aria-label="API details">
   <button class="lightbox__close" id="api-close" aria-label="Close">&times;</button>
   <div class="lightbox__inner lightbox__inner--doc">
@@ -167,5 +249,6 @@
 
 <div class="toasts" id="toasts" aria-live="polite"></div>
 <script src="/app.js"></script>
+<script src="/references.js"></script>
 </body>
 </html>

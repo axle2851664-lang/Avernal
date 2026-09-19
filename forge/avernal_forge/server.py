@@ -18,9 +18,17 @@ from pathlib import Path
 from typing import Any
 
 from . import __version__, config as cfg
+from .connectors import (
+    ConnectorHub,
+    ConnectorStore,
+    NetworkBlocked,
+    NetworkError,
+    Reference,
+    RobotsDisallowed,
+)
 from .engines import EngineRegistry, GenerationRequest
 from .jobs import DONE, ERROR, JobQueue
-from .storage import Gallery
+from .storage import Gallery, ReferenceStore
 
 MAX_BODY_BYTES = 48 * 1024 * 1024  # generous enough for an init image upload
 SSE_PING_SECONDS = 15.0
@@ -115,6 +123,13 @@ def build_request(payload: dict[str, Any]) -> GenerationRequest:
         except Exception as exc:
             raise ApiError(400, f"init_image is not valid base64: {exc}") from exc
 
+    palette = payload.get("palette")
+    if palette is not None:
+        if not isinstance(palette, list):
+            raise ApiError(400, "palette must be a list of hex colours")
+        palette = [str(colour)[:9] for colour in palette[:8]]
+
+    reference_id = payload.get("reference_id")
     negative = payload.get("negative") or payload.get("negative_prompt") or ""
     model = payload.get("model")
     return GenerationRequest(
@@ -130,6 +145,8 @@ def build_request(payload: dict[str, Any]) -> GenerationRequest:
         model=str(model) if model else None,
         init_image=init_image,
         strength=round(_clamp(payload.get("strength"), 0.05, 1.0, 0.6), 2),
+        palette=palette,
+        reference_id=str(reference_id) if reference_id else None,
     )
 
 
@@ -144,6 +161,9 @@ class ForgeServer(ThreadingHTTPServer):
         self.started_at = time.time()
         self.registry = EngineRegistry(config)
         self.gallery = Gallery(config.db_path, config.outputs_dir)
+        self.references = ReferenceStore(config.db_path, config.refs_dir)
+        self.connector_store = ConnectorStore(config.connectors_path)
+        self.hub = ConnectorHub(config, self.connector_store)
         self.jobs = JobQueue(
             self.registry, self.gallery, workers=config.workers, on_log=self.log
         )
@@ -181,6 +201,18 @@ class ForgeHandler(BaseHTTPRequestHandler):
         ("POST", re.compile(r"^/api/jobs/(?P<job_id>[A-Za-z0-9]+)/cancel$"), "post_cancel"),
         ("POST", re.compile(r"^/api/generate$"), "post_generate"),
         ("GET", re.compile(r"^/api/events$"), "get_events"),
+        ("GET", re.compile(r"^/api/connectors$"), "get_connectors"),
+        ("POST", re.compile(r"^/api/connectors/online$"), "post_online"),
+        ("POST", re.compile(r"^/api/connectors/(?P<connector_id>[a-z0-9_]+)/enabled$"), "post_connector_enabled"),
+        ("POST", re.compile(r"^/api/connectors/(?P<connector_id>[a-z0-9_]+)/credentials$"), "post_credentials"),
+        ("DELETE", re.compile(r"^/api/connectors/(?P<connector_id>[a-z0-9_]+)/credentials$"), "delete_credentials"),
+        ("POST", re.compile(r"^/api/connectors/(?P<connector_id>[a-z0-9_]+)/check$"), "post_connector_check"),
+        ("GET", re.compile(r"^/api/references/search$"), "get_reference_search"),
+        ("POST", re.compile(r"^/api/references/import$"), "post_reference_import"),
+        ("GET", re.compile(r"^/api/references$"), "get_references"),
+        ("POST", re.compile(r"^/api/references$"), "post_reference_save"),
+        ("DELETE", re.compile(r"^/api/references/(?P<reference_id>[A-Za-z0-9_-]+)$"), "delete_reference"),
+        ("GET", re.compile(r"^/api/network/log$"), "get_network_log"),
         ("GET", re.compile(r"^/v1/models$"), "get_openai_models"),
         ("POST", re.compile(r"^/v1/images/generations$"), "post_openai_images"),
     ]
@@ -302,6 +334,12 @@ class ForgeHandler(BaseHTTPRequestHandler):
             raise ApiError(404, f"no route for {method} {path}")
         except ApiError as exc:
             self.send_error_json(exc.status, exc.message, exc.kind)
+        except RobotsDisallowed as exc:
+            self.send_error_json(403, str(exc), "robots_disallowed")
+        except NetworkBlocked as exc:
+            self.send_error_json(403, str(exc), "network_blocked")
+        except NetworkError as exc:
+            self.send_error_json(502, str(exc), "upstream_error")
         except (BrokenPipeError, ConnectionResetError):
             pass
         except Exception as exc:  # last resort - never leak a stack trace
@@ -314,6 +352,10 @@ class ForgeHandler(BaseHTTPRequestHandler):
         if path.startswith("/images/"):
             root = Path(self.config.outputs_dir)
             rel = path[len("/images/"):]
+            cache = "public, max-age=31536000, immutable"
+        elif path.startswith("/refs/"):
+            root = Path(self.config.refs_dir)
+            rel = path[len("/refs/"):]
             cache = "public, max-age=31536000, immutable"
         else:
             root = Path(self.config.web_dir)
@@ -449,6 +491,11 @@ class ForgeHandler(BaseHTTPRequestHandler):
         server = self.server  # type: ignore[attr-defined]
         payload = self.read_json()
         request = build_request(payload)
+        if request.reference_id and not request.init_image:
+            path = server.references.path_for(request.reference_id)
+            if path is None:
+                raise ApiError(404, f"no saved reference {request.reference_id}")
+            request.init_image = path.read_bytes()
         engine_id = payload.get("engine")
         job = server.jobs.submit(request, engine_id if engine_id else None)
         self.send_json(job.public(), status=202)
@@ -487,6 +534,168 @@ class ForgeHandler(BaseHTTPRequestHandler):
         payload = json.dumps(event, default=str)
         self.wfile.write(f"data: {payload}\n\n".encode("utf-8"))
         self.wfile.flush()
+
+    # ------------------------------------------------- API: live connectors
+
+    def _hub(self):
+        return self.server.hub  # type: ignore[attr-defined]
+
+    def get_connectors(self) -> None:
+        self.send_json(self._hub().describe())
+
+    def post_online(self) -> None:
+        payload = self.read_json()
+        hub = self._hub()
+        if hub.config.online_forced and not payload.get("online", True):
+            raise ApiError(
+                409, "networking was forced on with --online; restart without it to disable"
+            )
+        hub.set_online(bool(payload.get("online", False)))
+        self.send_json(hub.describe())
+
+    def post_connector_enabled(self, connector_id: str) -> None:
+        hub = self._hub()
+        if hub.get(connector_id) is None:
+            raise ApiError(404, f"unknown connector {connector_id!r}")
+        payload = self.read_json()
+        enabled = set(hub.enabled_ids)
+        if payload.get("enabled", True):
+            enabled.add(connector_id)
+        else:
+            enabled.discard(connector_id)
+        hub.set_enabled(sorted(enabled))
+        self.send_json(hub.describe())
+
+    def post_credentials(self, connector_id: str) -> None:
+        hub = self._hub()
+        connector = hub.get(connector_id)
+        if connector is None:
+            raise ApiError(404, f"unknown connector {connector_id!r}")
+
+        payload = self.read_json()
+        known = {field.name for field in connector.credential_fields}
+        values = {
+            key: str(value)[:4000]
+            for key, value in payload.items()
+            if key in known and value is not None
+        }
+        if not values:
+            raise ApiError(400, f"no known fields for {connector_id}: expected {sorted(known)}")
+        hub.set_credentials(connector_id, values)
+        # The response deliberately carries state, never the secrets themselves.
+        self.send_json(hub.describe())
+
+    def delete_credentials(self, connector_id: str) -> None:
+        hub = self._hub()
+        if hub.get(connector_id) is None:
+            raise ApiError(404, f"unknown connector {connector_id!r}")
+        hub.store.clear_credentials(connector_id)
+        hub.refresh()
+        self.send_json(hub.describe())
+
+    def post_connector_check(self, connector_id: str) -> None:
+        hub = self._hub()
+        if hub.get(connector_id) is None:
+            raise ApiError(404, f"unknown connector {connector_id!r}")
+        self.send_json(hub.probe(connector_id))
+
+    def get_network_log(self) -> None:
+        hub = self._hub()
+        self.send_json({
+            "online": bool(hub.config.online),
+            "allowed_domains": hub.gate.allowed_domains,
+            "entries": hub.gate.audit_log(
+                limit=int(_clamp(self.query_one("limit", "100"), 1, 250, 100))
+            ),
+        })
+
+    # ---------------------------------------------------- API: references
+
+    def get_reference_search(self) -> None:
+        connector_id = self.query_one("connector", "wikipedia")
+        query = self.query_one("q", "").strip()
+        if not query:
+            raise ApiError(400, "q is required")
+        limit = int(_clamp(self.query_one("limit", "12"), 1, 40, 12))
+        results = self._hub().search(connector_id, query[:400], limit=limit)
+        self.send_json({
+            "connector": connector_id,
+            "query": query,
+            "results": [reference.public() for reference in results],
+        })
+
+    def post_reference_import(self) -> None:
+        payload = self.read_json()
+        url = str(payload.get("url") or "").strip()
+        if not url:
+            raise ApiError(400, "url is required")
+        reference = self._hub().import_url(url[:2000])
+        self.send_json({"connector": "webpage", "results": [reference.public()]})
+
+    def get_references(self) -> None:
+        server = self.server  # type: ignore[attr-defined]
+        self.send_json(server.references.list(
+            limit=int(_clamp(self.query_one("limit", "60"), 1, 200, 60)),
+            offset=int(_clamp(self.query_one("offset", "0"), 0, 10**9, 0)),
+        ))
+
+    def post_reference_save(self) -> None:
+        server = self.server  # type: ignore[attr-defined]
+        payload = self.read_json()
+        if not isinstance(payload.get("reference"), dict):
+            raise ApiError(400, "reference object is required")
+        raw = payload["reference"]
+
+        reference = Reference(
+            id=str(raw.get("id") or ""),
+            source=str(raw.get("source") or "")[:64],
+            title=str(raw.get("title") or "")[:500],
+            summary=str(raw.get("summary") or "")[:2000],
+            page_url=str(raw.get("page_url") or "")[:2000],
+            image_url=str(raw.get("image_url") or "")[:2000],
+            thumb_url=str(raw.get("thumb_url") or "")[:2000],
+            license=str(raw.get("license") or "")[:300],
+            author=str(raw.get("author") or "")[:300],
+            tags=[str(tag)[:80] for tag in (raw.get("tags") or [])][:20],
+            width=int(_clamp(raw.get("width"), 0, 100000, 0)),
+            height=int(_clamp(raw.get("height"), 0, 100000, 0)),
+            extra=raw.get("extra") if isinstance(raw.get("extra"), dict) else {},
+        )
+
+        image, content_type = b"", ""
+        if reference.image_url or reference.thumb_url:
+            try:
+                image, content_type = server.hub.fetch_image(reference)
+            except (NetworkBlocked, NetworkError) as exc:
+                # The text of a reference is still worth keeping even when its
+                # image sits on a host we are not allowed to reach.
+                self.log_message("reference image not fetched: %s", exc)
+
+        record = server.references.add(
+            {
+                "source": reference.source,
+                "title": reference.title,
+                "summary": reference.summary,
+                "page_url": reference.page_url,
+                "image_url": reference.image_url,
+                "license": reference.license,
+                "author": reference.author,
+                "tags": reference.tags,
+                "width": reference.width,
+                "height": reference.height,
+                "extra": {**reference.extra, "upstream_id": reference.id},
+            },
+            image,
+            content_type,
+        )
+        record["prompt_terms"] = reference.prompt_terms()
+        self.send_json(record, status=201)
+
+    def delete_reference(self, reference_id: str) -> None:
+        server = self.server  # type: ignore[attr-defined]
+        if not server.references.delete(reference_id):
+            raise ApiError(404, f"no reference {reference_id}")
+        self.send_json({"deleted": reference_id})
 
     # ------------------------------------------- API: OpenAI-compatible layer
 
