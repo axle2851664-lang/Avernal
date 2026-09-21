@@ -66,6 +66,14 @@ REDDIT_SEARCH = {
         "preview": {"images": [{"source": {
             "url": "https://preview.redd.it/x.jpg?width=1080&amp;crop=smart",
             "width": 1080, "height": 720}}]},
+    }}, {"data": {
+        "id": "t3vid", "title": "Waves at the harbour wall", "selftext": "",
+        "permalink": "/r/EarthPorn/comments/t3vid/waves/", "subreddit": "EarthPorn",
+        "author": "someone", "thumbnail": "https://b.thumbs.redditmedia.com/t.jpg",
+        "is_video": True,
+        "media": {"reddit_video": {
+            "fallback_url": "https://v.redd.it/abc/DASH_720.mp4?source=fallback",
+            "duration": 12}},
     }}]}
 }
 PINTEREST = {
@@ -89,6 +97,15 @@ MASTODON = [{
                            "preview_url": "https://files.mastodon/small.jpg",
                            "description": "fog in a valley",
                            "meta": {"original": {"width": 1920, "height": 1080}}}],
+}, {
+    "id": "110", "content": "<p>A looping clip</p>",
+    "url": "https://mastodon.social/@someone/110",
+    "account": {"acct": "someone"},
+    "tags": [],
+    "media_attachments": [{"type": "gifv", "url": "https://files.mastodon/loop.mp4",
+                           "preview_url": "https://files.mastodon/loop.jpg",
+                           "description": "a looping clip",
+                           "meta": {"original": {"width": 640, "height": 480}}}],
 }]
 BLUESKY_SESSION = {"accessJwt": "mock-jwt", "did": "did:plc:x"}
 BLUESKY_SEARCH = {
@@ -123,6 +140,12 @@ PAGE_HTML = b"""<html><head><title>Ignore me</title>
 
 #: A real four-band PNG, so tests can decode it and sample a palette.
 BARN_PNG = b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00@\x00\x00\x00@\x08\x02\x00\x00\x00%\x0b\xe6\x89\x00\x00\x00\x80IDATx\x9c\xed\xcf1\r\x02Q\x14\x00\xc1/\xe0\xaa\x13@\xfdE \xecj\x84\xa1\x84\xea<\xd0#\x82b\xf2\x92MV\xc0\xce:\x8f=\xba\xc5\x0f\x02\xe8\x83\x00\xfa \x80>\x08\xa0\x0f\x02\xe8\x83\x00\xfa \x80>\xf8\x17p=\x9e\xa3\x0b\xa0\x0b\xa0\x0b\xa0\x0b\xa0\x0b\xa0\x0b\xa0\x0b\xa0\x9b\x0f\xf8\xbc\xf6\xe8\x02\xe8\x02\xe8\x02\xe8\x02\xe8\x02\xe8\x02\xe8\x02\xe8\xe6\x03\xbe\xf7{t\x01t\x01t\x01t\x01t\x01t\x01t\x01t\xe3\x01?r\xbc\xcd-\xc2\xae6\x9e\x00\x00\x00\x00IEND\xaeB`\x82'
+
+VIDEO_PAGE_HTML = b"""<html><head><title>Clip</title>
+<meta property="og:title" content="A Timber Frame Raising">
+<meta property="og:video" content="/media/raising.mp4">
+<meta property="og:video:type" content="video/mp4">
+<meta property="og:image" content="/media/barn.jpg"></head><body></body></html>"""
 
 ROBOTS_OPEN = b"User-agent: *\nAllow: /\n"
 ROBOTS_CLOSED = b"User-agent: *\nDisallow: /private\nDisallow: /listing\n"
@@ -165,6 +188,10 @@ class _Handler(BaseHTTPRequestHandler):
             return self._send(ROBOTS_CLOSED, content_type="text/plain")
         if path == "/page.html":
             return self._send(PAGE_HTML, content_type="text/html")
+        if path == "/video-page.html":
+            return self._send(VIDEO_PAGE_HTML, content_type="text/html")
+        if path == "/media/raising.mp4":
+            return self._send(b"\x00\x00\x00 ftypisom-fake", content_type="video/mp4")
         if path == "/media/barn.jpg":
             return self._send(BARN_PNG, content_type="image/png")
         if path == "/listing":

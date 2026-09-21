@@ -450,6 +450,62 @@ class TestConnectorApi(unittest.TestCase):
         code, _ = self.expect_error("/api/connectors/nope/check", "POST", {})
         self.assertEqual(code, 404)
 
+class TestVideoReferences(ConnectorTestCase):
+    """Clips only count as video when the URL is a file a browser can play."""
+
+    def test_mastodon_gifv_is_a_clip_not_an_image(self):
+        results = self.hub.search("mastodon", "fog", limit=10)
+        clips = [r for r in results if r.kind == "video"]
+        self.assertEqual(len(clips), 1)
+        clip = clips[0]
+        self.assertTrue(clip.image_url.endswith(".mp4"))
+        self.assertTrue(clip.thumb_url.endswith(".jpg"))   # still preview
+        self.assertEqual(clip.extra["media_type"], "gifv")
+
+    def test_mastodon_photos_are_still_images(self):
+        results = self.hub.search("mastodon", "fog", limit=10)
+        self.assertEqual(results[0].kind, "image")
+
+    def test_reddit_hosted_video_uses_the_mp4_fallback(self):
+        results = self.hub.search("reddit", "waves", limit=10)
+        clips = [r for r in results if r.kind == "video"]
+        self.assertEqual(len(clips), 1)
+        clip = clips[0]
+        self.assertEqual(clip.image_url, "https://v.redd.it/abc/DASH_720.mp4")
+        self.assertNotIn("?", clip.image_url)          # query stripped
+        self.assertTrue(clip.thumb_url.endswith(".jpg"))
+
+    def test_reddit_image_posts_stay_images(self):
+        results = self.hub.search("reddit", "sunset", limit=10)
+        self.assertEqual(results[0].kind, "image")
+
+    def test_a_page_advertising_og_video_imports_as_a_clip(self):
+        reference = self.hub.import_url(f"{self.mock.base}/video-page.html")
+        self.assertEqual(reference.kind, "video")
+        self.assertTrue(reference.image_url.endswith("/media/raising.mp4"))
+        # The poster image is kept as the thumbnail.
+        self.assertTrue(reference.thumb_url.endswith("/media/barn.jpg"))
+
+    def test_a_page_with_only_an_image_stays_an_image(self):
+        reference = self.hub.import_url(f"{self.mock.base}/page.html")
+        self.assertEqual(reference.kind, "image")
+        self.assertEqual(reference.extra["video_url"], "")
+
+    def test_bluesky_records_its_playlist_without_claiming_a_playable_file(self):
+        results = self.hub.search("bluesky", "storm")
+        # Bluesky serves HLS, which is not a single downloadable file, so the
+        # reference stays an image and the playlist is kept in extra.
+        self.assertEqual(results[0].kind, "image")
+        self.assertIn("video_playlist", results[0].extra)
+
+    def test_saving_a_clip_reference_keeps_it_playable(self):
+        import urllib.request
+
+        reference = self.hub.import_url(f"{self.mock.base}/video-page.html")
+        data, content_type = self.hub.fetch_media(reference)
+        self.assertEqual(content_type, "video/mp4")
+        self.assertIn(b"ftyp", data)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

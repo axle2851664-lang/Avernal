@@ -4,7 +4,9 @@ Image generation that runs entirely on your own machine — and serves its own
 API, so other tools can use **Forge** as their image provider instead of a
 hosted service.
 
-**Generation never touches the network.** Prompts, models and images stay on
+Images and short video clips, generated on your own machine.
+
+**Generation never touches the network.** Prompts, models and output stay on
 your machine, always. There is no telemetry, no account, and no model hub: if a
 model is not already on your disk, Forge will not fetch it for you.
 
@@ -34,12 +36,13 @@ gallery beside them.
 
 ---
 
-## Two engines
+## Three engines
 
-| Engine | Needs | What it is |
-| --- | --- | --- |
-| **Procedural** (built in) | nothing | A prompt-conditioned renderer. Reads your prompt for colour, mood and composition cues and paints layered domain-warped noise fields through a derived palette. |
-| **Stable Diffusion** (optional) | `torch` + `diffusers` + weights on disk | Real SD 1.x / 2.x / SDXL inference, loaded from local files only. |
+| Engine | Needs | Makes | What it is |
+| --- | --- | --- | --- |
+| **Procedural** (built in) | nothing | stills and clips | A prompt-conditioned renderer. Reads your prompt for colour, mood and composition cues and paints layered domain-warped noise fields through a derived palette. |
+| **Stable Diffusion** (optional) | `torch` + `diffusers` + weights on disk | stills | Real SD 1.x / 2.x / SDXL inference, loaded from local files only. |
+| **Video diffusion** (optional) | `torch` + `diffusers` + video weights | clips | Stable Video Diffusion, AnimateDiff, LTX, CogVideoX or Wan - whichever you put in the models folder. |
 
 The procedural engine is **not a neural model and never pretends to be one**.
 It exists so the app works the moment you clone it, and so there is always a
@@ -71,6 +74,58 @@ Forge picks CUDA, then MPS, then CPU. Override with `--device`, and add
 
 ---
 
+## Video
+
+Switch the output from **Image** to **Video** in the studio, or send
+`"kind": "video"`. Clips are short, loop seamlessly, and carry their own frame
+count and rate.
+
+The built-in procedural engine animates with no weights and no dependencies: it
+walks the noise field's sampling point around a circle, so the last frame runs
+back into the first with no visible seam. Frame 0 of a clip is exactly the still
+you would get from the same seed, which makes it easy to find a composition
+first and then set it moving.
+
+![Generating a clip](docs/video.png)
+
+### Output formats
+
+| Format | Needs | Notes |
+| --- | --- | --- |
+| **MP4** (H.264) | ffmpeg on your machine | Preferred when available: smaller and seekable |
+| **Animated PNG** | nothing | Written with the standard library alone, and plays in every current browser |
+
+Forge picks MP4 when ffmpeg is installed and animated PNG otherwise, so video
+works on a machine with nothing installed at all - the same promise the rest of
+the app makes. Force one with `video_format`.
+
+Animated PNG is lossless and stores whole frames, so it is **much** larger than
+MP4: a 320x320 14-frame clip lands around 3MB where H.264 would be tens of
+kilobytes. If you plan to make more than the occasional clip, install ffmpeg.
+
+```bash
+curl -X POST http://127.0.0.1:8787/api/generate \
+  -H 'Content-Type: application/json' \
+  -d '{"prompt": "a drifting crimson horizon", "kind": "video",
+       "width": 512, "height": 512, "frames": 24, "fps": 12, "motion": 1.0}'
+```
+
+`frames` (2-240), `fps` (1-60) and `motion` (0-2, where 0 holds still) shape the
+clip. Video has a tighter per-frame size cap than stills, because frames
+multiply the cost of every pixel.
+
+### Real video models
+
+Drop a diffusers video model folder in `~/.avernal-forge/models/` and Forge
+picks it up. The pipeline class in its `model_index.json` decides how it is
+driven, so SVD, AnimateDiff, LTX, CogVideoX and Wan all work through one engine,
+and Forge passes only the arguments that pipeline actually accepts.
+
+Image-to-video models such as SVD need a starting frame: attach a reference, or
+generate a still and use it as the starting image. Budget roughly 8GB of VRAM
+for AnimateDiff, 10-16GB for SVD, and more for CogVideoX or Wan; `--offload`
+trades speed for VRAM.
+
 ## Live references
 
 Turn on **Live references** in the studio (or start with `--online`) and Forge
@@ -91,10 +146,10 @@ image format the page can display.
 | **Wikipedia** | nothing | Article summaries and lead images |
 | **Wikimedia Commons** | nothing | Freely licensed photography, with attribution |
 | **Openverse** | nothing (token optional) | Several hundred million openly licensed images |
-| **Web page** | nothing | Paste any URL; title, description and preview image |
-| **Reddit** | your own app id + secret | Public post search and images, via the official OAuth API |
+| **Web page** | nothing | Paste any URL; title, description, preview image or `og:video` clip |
+| **Reddit** | your own app id + secret | Public post search, images and hosted video, via the official OAuth API |
 | **Pinterest** | your own access token | Your own pins and boards |
-| **Mastodon** | an instance host | Public hashtag timelines and their images |
+| **Mastodon** | an instance host | Public hashtag timelines, their images and their clips |
 | **Bluesky** | handle + app password | Public post search and images |
 | **Real estate** | MLS/Bridge endpoint + token | Live listings and photos over the RESO Web API |
 
@@ -221,6 +276,8 @@ Generation parameters and their limits: `prompt` (required), `negative`,
 `sampler`, `model`, `engine`, plus `init_image` + `strength` for img2img on the
 diffusers engine. A request may also carry `palette` (hex colours sampled from a
 reference) and `reference_id` (a saved reference to start the image from).
+For clips: `kind` ("image" or "video"), `frames`, `fps`, `motion` and
+`video_format` ("auto", "mp4" or "apng").
 
 Every PNG carries its own recipe as embedded metadata, so an image dragged out
 of the outputs folder still knows the prompt, seed and settings that made it.
@@ -260,7 +317,7 @@ Useful `serve` flags:
 ## Staying local
 
 - **Generation never uses the network**, whatever else is switched on. Your
-  prompts and your images are not sent anywhere, ever.
+  prompts, images and clips are not sent anywhere, ever.
 - Live references are **off until you turn them on**, and only reach hosts
   belonging to a connector you enabled and configured.
 - Forge binds to `127.0.0.1` by default: nothing outside your machine can reach it.
@@ -292,11 +349,13 @@ forge/
 │   ├── jobs.py                  queue, progress, cancellation, event bus
 │   ├── storage.py               SQLite gallery
 │   ├── models.py                local weight discovery (no network)
-│   ├── png.py                   PNG encoder with embedded metadata
+│   ├── png.py                   PNG and animated-PNG encoders
+│   ├── video.py                 MP4 via ffmpeg, animated PNG otherwise
 │   ├── engines/
 │   │   ├── base.py              engine contract
-│   │   ├── procedural.py        built-in renderer, zero dependencies
-│   │   └── diffusers_engine.py  local Stable Diffusion / SDXL
+│   │   ├── procedural.py        built-in renderer, stills and clips
+│   │   ├── diffusers_engine.py  local Stable Diffusion / SDXL
+│   │   └── diffusers_video.py   local SVD / AnimateDiff / LTX / CogVideoX / Wan
 │   └── connectors/
 │       ├── net.py               the network gate: allowlist, caps, audit log
 │       ├── base.py              connector contract
@@ -312,6 +371,7 @@ forge/
 └── tests/
     ├── test_smoke.py            end-to-end tests against a live server
     ├── test_connectors.py       connectors and the network gate
+    ├── test_video.py            encoders, animation, storage migration
     └── mock_upstreams.py        recorded upstream response shapes
 ```
 
@@ -321,7 +381,7 @@ forge/
 python3 -m unittest discover -s tests
 ```
 
-64 tests, no dependencies:
+107 tests, no dependencies:
 
 - **Generation** - batching, seed reproducibility, cancellation, the gallery,
   the provider API, request validation, path-traversal protection and API-key
@@ -330,6 +390,10 @@ python3 -m unittest discover -s tests
   shapes, plus the gate itself: offline refusal, allowlist enforcement,
   redirects that try to leave it, size caps, private-address refusal, and the
   guarantee that credentials never reach the audit log or any response.
+- **Video** - APNG structure, format selection and its refusals, seamless
+  looping, motion response, clip reproducibility, the gallery migration from a
+  pre-video database, and generating a clip end to end over the API. The MP4
+  test skips itself where ffmpeg is absent.
 
 The connector tests deliberately do not call the real services, so they run
 anywhere - including with no network at all. `python3 run.py connectors --check`

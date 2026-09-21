@@ -25,6 +25,8 @@ class Reference:
     tags: list[str] = field(default_factory=list)
     width: int = 0
     height: int = 0
+    #: "image" or "video" - video only when the URL is a file a browser can play.
+    kind: str = "image"
     extra: dict[str, Any] = field(default_factory=dict)
 
     def public(self) -> dict[str, Any]:
@@ -41,6 +43,8 @@ class Reference:
             "tags": self.tags,
             "width": self.width,
             "height": self.height,
+            "kind": self.kind,
+            "is_video": self.kind == "video",
             "extra": self.extra,
         }
 

@@ -32,6 +32,10 @@ CREATE TABLE IF NOT EXISTS images (
     duration_ms   INTEGER NOT NULL DEFAULT 0,
     favorite      INTEGER NOT NULL DEFAULT 0,
     job_id        TEXT NOT NULL DEFAULT '',
+    kind          TEXT NOT NULL DEFAULT 'image',
+    mime          TEXT NOT NULL DEFAULT 'image/png',
+    frames        INTEGER NOT NULL DEFAULT 1,
+    fps           REAL NOT NULL DEFAULT 0,
     extra         TEXT NOT NULL DEFAULT '{}'
 );
 CREATE INDEX IF NOT EXISTS idx_images_created ON images (created_at DESC);
@@ -40,8 +44,18 @@ CREATE INDEX IF NOT EXISTS idx_images_favorite ON images (favorite, created_at D
 
 _COLUMNS = (
     "id, created_at, filename, prompt, negative, engine, model, sampler, "
-    "width, height, steps, guidance, seed, duration_ms, favorite, job_id, extra"
+    "width, height, steps, guidance, seed, duration_ms, favorite, job_id, "
+    "kind, mime, frames, fps, extra"
 )
+
+#: Columns added after the first release, back-filled on open so an existing
+#: gallery keeps working rather than erroring on startup.
+_MIGRATIONS = {
+    "kind": "TEXT NOT NULL DEFAULT 'image'",
+    "mime": "TEXT NOT NULL DEFAULT 'image/png'",
+    "frames": "INTEGER NOT NULL DEFAULT 1",
+    "fps": "REAL NOT NULL DEFAULT 0",
+}
 
 
 class Gallery:
@@ -52,6 +66,7 @@ class Gallery:
         self.outputs_dir.mkdir(parents=True, exist_ok=True)
         with self._connect() as conn:
             conn.executescript(SCHEMA)
+            self._migrate(conn)
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path, timeout=30)
@@ -59,12 +74,22 @@ class Gallery:
         conn.execute("PRAGMA journal_mode=WAL")
         return conn
 
+    @staticmethod
+    def _migrate(conn: sqlite3.Connection) -> None:
+        present = {row["name"] for row in conn.execute("PRAGMA table_info(images)")}
+        for column, definition in _MIGRATIONS.items():
+            if column not in present:
+                conn.execute(f"ALTER TABLE images ADD COLUMN {column} {definition}")
+
     # ------------------------------------------------------------------ write
 
-    def add(self, record: dict[str, Any], png: bytes) -> dict[str, Any]:
-        """Write the PNG to disk and index it. Returns the stored record."""
-        filename = f"{record['id']}.png"
-        (self.outputs_dir / filename).write_bytes(png)
+    def add(self, record: dict[str, Any], data: bytes) -> dict[str, Any]:
+        """Write the file to disk and index it. Returns the stored record."""
+        extension = str(record.get("extension") or ".png")
+        if not extension.startswith(".") or "/" in extension or len(extension) > 8:
+            extension = ".png"
+        filename = f"{record['id']}{extension}"
+        (self.outputs_dir / filename).write_bytes(data)
         row = {
             "id": record["id"],
             "created_at": record.get("created_at") or time.time(),
@@ -82,6 +107,10 @@ class Gallery:
             "duration_ms": int(record.get("duration_ms", 0)),
             "favorite": 0,
             "job_id": record.get("job_id", ""),
+            "kind": str(record.get("kind") or "image"),
+            "mime": str(record.get("mime") or "image/png"),
+            "frames": int(record.get("frames") or 1),
+            "fps": float(record.get("fps") or 0),
             "extra": json.dumps(record.get("extra", {}), separators=(",", ":")),
         }
         placeholders = ", ".join(f":{c.strip()}" for c in _COLUMNS.split(","))
@@ -158,13 +187,16 @@ class Gallery:
         with self._connect() as conn:
             row = conn.execute(
                 "SELECT COUNT(*) AS n, COALESCE(SUM(favorite), 0) AS favs, "
-                "COALESCE(SUM(duration_ms), 0) AS ms FROM images"
+                "COALESCE(SUM(duration_ms), 0) AS ms, "
+                "COALESCE(SUM(kind = 'video'), 0) AS clips FROM images"
             ).fetchone()
         bytes_on_disk = sum(
-            p.stat().st_size for p in self.outputs_dir.glob("*.png") if p.is_file()
+            p.stat().st_size for p in self.outputs_dir.iterdir()
+            if p.is_file() and not p.name.startswith(".")
         )
         return {
             "images": row["n"],
+            "videos": row["clips"],
             "favorites": row["favs"],
             "render_seconds": round(row["ms"] / 1000.0, 1),
             "bytes_on_disk": bytes_on_disk,
@@ -180,6 +212,8 @@ class Gallery:
         except (TypeError, ValueError):
             out["extra"] = {}
         out["favorite"] = bool(out.get("favorite"))
+        out["kind"] = out.get("kind") or "image"
+        out["is_video"] = out["kind"] == "video"
         out["url"] = f"/images/{out['filename']}"
         return out
 
@@ -196,6 +230,8 @@ CREATE TABLE IF NOT EXISTS references_ (
     filename    TEXT NOT NULL DEFAULT '',
     license     TEXT NOT NULL DEFAULT '',
     author      TEXT NOT NULL DEFAULT '',
+    kind        TEXT NOT NULL DEFAULT 'image',
+    mime        TEXT NOT NULL DEFAULT '',
     tags        TEXT NOT NULL DEFAULT '[]',
     width       INTEGER NOT NULL DEFAULT 0,
     height      INTEGER NOT NULL DEFAULT 0,
@@ -206,15 +242,25 @@ CREATE INDEX IF NOT EXISTS idx_refs_created ON references_ (created_at DESC);
 
 _REF_COLUMNS = (
     "id, created_at, source, title, summary, page_url, image_url, filename, "
-    "license, author, tags, width, height, extra"
+    "license, author, kind, mime, tags, width, height, extra"
 )
 
-#: Only formats a browser can render are stored, keyed to their extension.
-IMAGE_EXTENSIONS = {
-    "image/jpeg": ".jpg", "image/jpg": ".jpg", "image/png": ".png",
-    "image/webp": ".webp", "image/gif": ".gif", "image/avif": ".avif",
-    "image/svg+xml": ".svg",
+_REF_MIGRATIONS = {
+    "kind": "TEXT NOT NULL DEFAULT 'image'",
+    "mime": "TEXT NOT NULL DEFAULT ''",
 }
+
+#: Only formats a browser can render are stored, keyed to their extension.
+MEDIA_EXTENSIONS = {
+    "image/jpeg": ".jpg", "image/jpg": ".jpg", "image/png": ".png",
+    "image/apng": ".png", "image/webp": ".webp", "image/gif": ".gif",
+    "image/avif": ".avif", "image/svg+xml": ".svg",
+    "video/mp4": ".mp4", "video/webm": ".webm", "video/quicktime": ".mov",
+    "video/ogg": ".ogv",
+}
+
+#: Kept under the old name for anything still importing it.
+IMAGE_EXTENSIONS = MEDIA_EXTENSIONS
 
 
 class ReferenceStore:
@@ -227,6 +273,12 @@ class ReferenceStore:
         self.refs_dir.mkdir(parents=True, exist_ok=True)
         with self._connect() as conn:
             conn.executescript(REFERENCE_SCHEMA)
+            present = {r["name"] for r in conn.execute("PRAGMA table_info(references_)")}
+            for column, definition in _REF_MIGRATIONS.items():
+                if column not in present:
+                    conn.execute(
+                        f"ALTER TABLE references_ ADD COLUMN {column} {definition}"
+                    )
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path, timeout=30)
@@ -242,8 +294,13 @@ class ReferenceStore:
     ) -> dict[str, Any]:
         reference_id = uuid.uuid4().hex[:16]
         filename = ""
+        mime = (content_type or "").split(";")[0].strip().lower()
         if image:
-            suffix = IMAGE_EXTENSIONS.get(content_type.lower(), ".jpg")
+            # An unknown type used to fall back to .jpg, which quietly saved
+            # Mastodon's gifv MP4s as images that no browser would play.
+            suffix = MEDIA_EXTENSIONS.get(mime)
+            if suffix is None:
+                suffix = ".mp4" if mime.startswith("video/") else ".jpg"
             filename = f"{reference_id}{suffix}"
             (self.refs_dir / filename).write_bytes(image)
 
@@ -258,6 +315,9 @@ class ReferenceStore:
             "filename": filename,
             "license": record.get("license", ""),
             "author": record.get("author", ""),
+            "kind": "video" if mime.startswith("video/") else str(
+                record.get("kind") or "image"),
+            "mime": mime,
             "tags": json.dumps(record.get("tags") or [], separators=(",", ":")),
             "width": int(record.get("width") or 0),
             "height": int(record.get("height") or 0),
@@ -319,5 +379,7 @@ class ReferenceStore:
                 out[key] = json.loads(out.get(key) or ("[]" if key == "tags" else "{}"))
             except (TypeError, ValueError):
                 out[key] = [] if key == "tags" else {}
+        out["kind"] = out.get("kind") or "image"
+        out["is_video"] = out["kind"] == "video"
         out["local_url"] = f"/refs/{out['filename']}" if out["filename"] else ""
         return out

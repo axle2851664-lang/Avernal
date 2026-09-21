@@ -14,11 +14,13 @@ from .base import (
     Cancelled,
     Engine,
     GeneratedImage,
+    GeneratedMedia,
     GenerationRequest,
     JobContext,
     random_seed,
 )
 from .diffusers_engine import DiffusersEngine
+from .diffusers_video import DiffusersVideoEngine
 from .procedural import ProceduralEngine
 
 __all__ = [
@@ -27,6 +29,7 @@ __all__ = [
     "Engine",
     "EngineRegistry",
     "GeneratedImage",
+    "GeneratedMedia",
     "GenerationRequest",
     "JobContext",
     "random_seed",
@@ -36,7 +39,11 @@ __all__ = [
 class EngineRegistry:
     def __init__(self, config: Any) -> None:
         self.config = config
-        self.engines: list[Engine] = [DiffusersEngine(config), ProceduralEngine()]
+        self.engines: list[Engine] = [
+            DiffusersEngine(config),
+            DiffusersVideoEngine(config),
+            ProceduralEngine(),
+        ]
 
     def all(self) -> list[Engine]:
         return list(self.engines)
@@ -47,7 +54,7 @@ class EngineRegistry:
                 return engine
         return None
 
-    def default(self) -> Engine:
+    def default(self, want_video: bool = False) -> Engine:
         """The engine used when the request does not name one."""
         wanted = (self.config.engine or "auto").lower()
         if wanted != "auto":
@@ -55,19 +62,30 @@ class EngineRegistry:
             if engine is None:
                 raise RuntimeError(f"unknown engine {wanted!r}")
             return engine
-        for engine in self.engines:
+        candidates = [
+            e for e in self.engines
+            if (e.supports_video if want_video else e.supports_image)
+        ]
+        for engine in candidates:
             if engine.available() and (not engine.is_neural or engine.models()):
                 return engine
-        return self.engines[-1]
+        if not candidates:
+            raise RuntimeError("no engine on this machine can produce video")
+        return candidates[-1]
 
-    def resolve(self, engine_id: str | None) -> Engine:
+    def resolve(self, engine_id: str | None, want_video: bool = False) -> Engine:
         if not engine_id or engine_id == "auto":
-            return self.default()
+            return self.default(want_video=want_video)
         engine = self.by_id(engine_id)
         if engine is None:
             raise RuntimeError(f"unknown engine {engine_id!r}")
         if not engine.available():
             raise RuntimeError(engine.unavailable_reason() or f"{engine_id} unavailable")
+        if want_video and not engine.supports_video:
+            raise RuntimeError(
+                f"the {engine.label} engine makes stills, not video. Leave the "
+                "engine on auto, or pick one that supports video."
+            )
         return engine
 
     def describe(self) -> list[dict[str, Any]]:

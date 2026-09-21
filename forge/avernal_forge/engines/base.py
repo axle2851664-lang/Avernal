@@ -45,6 +45,19 @@ class GenerationRequest:
     palette: list[str] | None = None
     #: The saved reference this request was built from, for provenance.
     reference_id: str | None = None
+    #: "image" or "video".
+    kind: str = "image"
+    frames: int = 24
+    fps: float = 12.0
+    #: How much the clip should move, 0..2. Engines map this onto whatever
+    #: their pipeline calls it (SVD's motion bucket, the procedural drift).
+    motion: float = 1.0
+    #: "auto", "mp4" or "apng".
+    video_format: str = "auto"
+
+    @property
+    def is_video(self) -> bool:
+        return self.kind == "video"
 
     def seed_for(self, index: int) -> int:
         """Seeds within a batch walk forward so a batch is reproducible."""
@@ -62,16 +75,35 @@ class GenerationRequest:
             "sampler": self.sampler,
             "model": self.model,
             "palette": self.palette,
+            "kind": self.kind,
+            "frames": self.frames if self.is_video else 1,
+            "fps": self.fps if self.is_video else 0,
         }
 
 
 @dataclass
-class GeneratedImage:
-    png: bytes
+class GeneratedMedia:
+    """One finished still or clip, ready to be written to disk."""
+
+    data: bytes
     seed: int
     width: int
     height: int
+    kind: str = "image"
+    mime: str = "image/png"
+    ext: str = ".png"
+    #: 1 for a still; the clip's frame count otherwise.
+    frames: int = 1
+    fps: float = 0.0
     meta: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def is_video(self) -> bool:
+        return self.kind == "video"
+
+
+#: Kept so older code and any out-of-tree engine keep working.
+GeneratedImage = GeneratedMedia
 
 
 class Cancelled(Exception):
@@ -109,6 +141,8 @@ class Engine:
             "id": self.id,
             "label": self.label,
             "description": self.description,
+            "supports_video": self.supports_video,
+            "supports_image": self.supports_image,
             "available": self.available(),
             "reason": self.unavailable_reason(),
             "neural": self.is_neural,
@@ -118,7 +152,13 @@ class Engine:
     def device_label(self) -> str:
         return "cpu"
 
+    #: Engines that can produce clips set this; the registry uses it to pick
+    #: an engine for a video request.
+    supports_video: bool = False
+    #: Cleared by video-only engines so they are never picked for a still.
+    supports_image: bool = True
+
     def generate(
         self, request: GenerationRequest, ctx: JobContext
-    ) -> Iterator[GeneratedImage]:
+    ) -> Iterator[GeneratedMedia]:
         raise NotImplementedError

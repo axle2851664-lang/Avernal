@@ -12,6 +12,22 @@ from pathlib import Path
 from typing import Any
 
 CHECKPOINT_SUFFIXES = (".safetensors", ".ckpt")
+
+#: Diffusers pipeline classes that produce video. Anything with "video" in the
+#: name is caught too, so newer pipelines classify correctly without an update.
+VIDEO_PIPELINE_PREFIXES = (
+    "animatediff", "cogvideo", "ltx", "mochi", "wan", "hunyuanvideo",
+    "i2vgen", "stablevideodiffusion", "texttovideo", "zeroscope", "pyramid",
+    "easyanimate", "allegro", "latte",
+)
+
+
+def classify_pipeline(class_name: str) -> str:
+    """"video" or "image", from the pipeline class a model declares."""
+    lowered = (class_name or "").lower()
+    if "video" in lowered or lowered.startswith(VIDEO_PIPELINE_PREFIXES):
+        return "video"
+    return "image"
 # Files that live inside a diffusers folder and mark it as loadable.
 FOLDER_MARKERS = ("model_index.json",)
 
@@ -38,12 +54,14 @@ def _folder_model(path: Path) -> dict[str, Any] | None:
     except (OSError, ValueError):
         data = {}
     cls = str(data.get("_class_name", "")) or "DiffusionPipeline"
+    media = classify_pipeline(cls)
     return {
         "id": f"folder:{path.name}",
         "name": path.name,
-        "engine": "diffusers",
+        "engine": "diffusers-video" if media == "video" else "diffusers",
         "kind": "diffusers",
         "pipeline": cls,
+        "media": media,
         "path": str(path),
         "size_bytes": _dir_size(path),
     }
@@ -63,6 +81,9 @@ def _file_model(path: Path) -> dict[str, Any]:
         "engine": "diffusers",
         "kind": "checkpoint",
         "pipeline": guess,
+        # A bare checkpoint carries no pipeline config, so it is treated as a
+        # still-image model; video weights ship as diffusers folders.
+        "media": "image",
         "path": str(path),
         "size_bytes": size,
     }
@@ -117,11 +138,17 @@ def scan_hf_cache(cache_root: Path | None = None) -> list[dict[str, Any]]:
     return found
 
 
-def discover(models_dir: Path, include_hf_cache: bool = True) -> list[dict[str, Any]]:
+def discover(
+    models_dir: Path,
+    include_hf_cache: bool = True,
+    media: str | None = None,
+) -> list[dict[str, Any]]:
     models = scan_dir(Path(models_dir))
     if include_hf_cache:
         known = {m["path"] for m in models}
         models += [m for m in scan_hf_cache() if m["path"] not in known]
+    if media:
+        models = [m for m in models if m.get("media", "image") == media]
     return models
 
 

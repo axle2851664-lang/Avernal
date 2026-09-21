@@ -10,7 +10,13 @@ import time
 from typing import Any
 
 from .base import Connector, CredentialField, Reference
-from .net import NetworkBlocked, NetworkError, NetworkGate, redact
+from .net import (
+    VIDEO_MAX_BYTES,
+    NetworkBlocked,
+    NetworkError,
+    NetworkGate,
+    redact,
+)
 from .openverse import OpenverseConnector
 from .pinterest import PinterestConnector
 from .reddit import RedditConnector
@@ -156,24 +162,31 @@ class ConnectorHub:
             "ms": int((time.time() - started) * 1000),
         }
 
-    def fetch_image(self, reference: Reference) -> tuple[bytes, str]:
-        """Download a reference's image, preferring a host we already allow."""
+    def fetch_media(self, reference: Reference) -> tuple[bytes, str]:
+        """Download a reference's file, preferring a host we already allow."""
         candidates = [
             reference.extra.get("download_url", ""),
             reference.image_url,
             reference.thumb_url,
         ]
         user_directed = reference.source == "webpage"
+        # Clips are far larger than stills, so they get their own ceiling.
+        cap = VIDEO_MAX_BYTES if reference.kind == "video" else None
         errors: list[str] = []
         for url in [c for c in candidates if c]:
             try:
+                kwargs = {"max_bytes": cap} if cap else {}
                 response = self.gate.image(
-                    url, connector=reference.source, user_directed=user_directed
+                    url, connector=reference.source, user_directed=user_directed,
+                    **kwargs,
                 )
                 content_type = response.headers.get("content-type", "").split(";")[0]
                 return response.body, content_type or "image/jpeg"
             except (NetworkBlocked, NetworkError) as exc:
                 errors.append(f"{redact(url)}: {exc}")
         raise NetworkError(
-            "could not download the reference image. " + " | ".join(errors[:3])
+            "could not download the reference file. " + " | ".join(errors[:3])
         )
+
+    #: Kept for callers written before video references existed.
+    fetch_image = fetch_media

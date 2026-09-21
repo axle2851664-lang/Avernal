@@ -99,6 +99,20 @@ class WebPageConnector(Connector):
         if image:
             image = urllib.parse.urljoin(final, image)
 
+        # A page may advertise a video; only treat it as one when it is a file
+        # a browser can play directly.
+        clip = ""
+        for key in ("og:video:secure_url", "og:video:url", "og:video"):
+            candidate = parser.meta.get(key, "").strip()
+            if candidate:
+                clip = urllib.parse.urljoin(final, candidate)
+                break
+        video_type = parser.meta.get("og:video:type", "").lower()
+        playable = clip and (
+            video_type.startswith("video/")
+            or clip.split("?")[0].lower().endswith((".mp4", ".webm", ".mov", ".ogv"))
+        )
+
         host = urllib.parse.urlsplit(final).netloc
         return Reference(
             id=f"webpage:{abs(hash(final)) & 0xFFFFFFFF:08x}",
@@ -106,11 +120,13 @@ class WebPageConnector(Connector):
             title=parser.best_title() or host,
             summary=self._clean(parser.best_description(), 800),
             page_url=parser.canonical or final,
-            image_url=image,
+            image_url=clip if playable else image,
             thumb_url=image,
+            kind="video" if playable else "image",
             license="unknown - check the source before reusing",
             author=parser.meta.get("og:site_name", "") or host,
-            extra={"host": host, "robots": reason},
+            extra={"host": host, "robots": reason,
+                   "video_url": clip if playable else ""},
         )
 
     def search(self, query, gate: NetworkGate, credentials, limit: int = 12):

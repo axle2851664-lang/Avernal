@@ -22,14 +22,61 @@
     }).join("");
   }
 
+  function isVideoUrl(url) {
+    return /\.(mp4|webm|mov|ogv)(\?|$)/i.test(String(url || ""));
+  }
+
+  function mediaNode(record, options) {
+    options = options || {};
+    var url = record.local_url || record.thumb_url || record.image_url || "";
+    if (isVideoUrl(url)) {
+      var video = document.createElement("video");
+      video.src = url;
+      video.loop = true;
+      video.muted = true;
+      video.playsInline = true;
+      video.preload = "metadata";
+      if (options.autoplay) { video.autoplay = true; }
+      return video;
+    }
+    var image = document.createElement("img");
+    image.src = url;
+    image.alt = record.title || "";
+    if (options.lazy) { image.loading = "lazy"; }
+    if (options.noReferrer) { image.referrerPolicy = "no-referrer"; }
+    return image;
+  }
+
   /* Sample a palette in the browser: it handles every format the page can
-     display, so no image decoder is needed on the server. The image is served
-     from our own origin, so the canvas is never tainted. */
+     display, so no image decoder is needed on the server. The file is served
+     from our own origin, so the canvas is never tainted. A clip is sampled
+     from its first frame. */
   function extractPalette(url, count) {
     return new Promise(function (resolve) {
       if (!url) { resolve([]); return; }
+      if (isVideoUrl(url)) {
+        var clip = document.createElement("video");
+        clip.muted = true;
+        clip.playsInline = true;
+        clip.preload = "auto";
+        clip.addEventListener("loadeddata", function () {
+          sampleFrom(clip, count, resolve);
+        });
+        clip.addEventListener("error", function () { resolve([]); });
+        clip.src = url;
+        return;
+      }
       var image = new Image();
       image.onload = function () {
+        sampleFrom(image, count, resolve);
+      };
+      image.onerror = function () { resolve([]); };
+      image.src = url;
+    });
+  }
+
+  function sampleFrom(source, count, resolve) {
+    (function () {
         var size = 64;
         var canvas = document.createElement("canvas");
         canvas.width = size;
@@ -37,7 +84,7 @@
         var ctx = canvas.getContext("2d", { willReadFrequently: true });
         var pixels;
         try {
-          ctx.drawImage(image, 0, 0, size, size);
+          ctx.drawImage(source, 0, 0, size, size);
           pixels = ctx.getImageData(0, 0, size, size).data;
         } catch (error) {
           resolve([]);            // tainted canvas or a format we cannot read
@@ -77,10 +124,7 @@
         }
         picked.sort(function (a, b) { return luminance(a) - luminance(b); });
         resolve(picked.map(toHex));
-      };
-      image.onerror = function () { resolve([]); };
-      image.src = url;
-    });
+    })();
   }
 
   /* -------------------------------------------------------------- state */
@@ -223,14 +267,16 @@
     card.className = "card card--ref";
     card.title = "Use as reference";
 
-    if (result.thumb_url) {
-      var img = document.createElement("img");
-      img.src = result.thumb_url;
-      img.alt = result.title;
-      img.loading = "lazy";
-      img.referrerPolicy = "no-referrer";
-      img.onerror = function () { img.replaceWith(placeholder(result)); };
-      card.appendChild(img);
+    if (result.thumb_url || result.image_url) {
+      var node = mediaNode(result, { lazy: true, noReferrer: true });
+      node.onerror = function () { node.replaceWith(placeholder(result)); };
+      card.appendChild(node);
+      if (result.kind === "video") {
+        var badge = document.createElement("span");
+        badge.className = "card__clip";
+        badge.textContent = "clip";
+        card.appendChild(badge);
+      }
     } else {
       card.appendChild(placeholder(result));
     }
@@ -297,11 +343,13 @@
       card.title = record.title;
 
       if (record.local_url) {
-        var img = document.createElement("img");
-        img.src = record.local_url;
-        img.alt = record.title;
-        img.loading = "lazy";
-        card.appendChild(img);
+        card.appendChild(mediaNode(record, { lazy: true }));
+        if (record.kind === "video") {
+          var clipBadge = document.createElement("span");
+          clipBadge.className = "card__clip";
+          clipBadge.textContent = "clip";
+          card.appendChild(clipBadge);
+        }
       } else {
         card.appendChild(placeholder(record));
       }

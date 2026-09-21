@@ -19,6 +19,14 @@ MAX_BATCH = 8
 MAX_STEPS = 150
 MAX_PROMPT_CHARS = 4000
 
+# Video limits. Frames multiply everything, so the per-frame area is capped
+# lower than for stills.
+MAX_FRAMES = 240
+MIN_FRAMES = 2
+MAX_FPS = 60
+MIN_FPS = 1
+MAX_VIDEO_PIXELS = 1280 * 1024
+
 
 def _default_home() -> Path:
     env = os.environ.get("AVERNAL_FORGE_HOME")

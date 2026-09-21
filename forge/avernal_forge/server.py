@@ -29,6 +29,11 @@ from .connectors import (
 from .engines import EngineRegistry, GenerationRequest
 from .jobs import DONE, ERROR, JobQueue
 from .storage import Gallery, ReferenceStore
+from .video import (
+    available_formats,
+    default_format,
+    ffmpeg_path,
+)
 
 MAX_BODY_BYTES = 48 * 1024 * 1024  # generous enough for an init image upload
 SSE_PING_SECONDS = 15.0
@@ -94,14 +99,32 @@ def build_request(payload: dict[str, Any]) -> GenerationRequest:
         width, height = parsed
 
     # Diffusion pipelines need multiples of 8; rounding beats a cryptic failure.
+    kind = str(payload.get("kind") or "image").strip().lower()
+    if kind not in ("image", "video"):
+        raise ApiError(400, "kind must be 'image' or 'video'")
+
     width = int(_clamp(width, cfg.MIN_SIDE, cfg.MAX_SIDE, 512)) // 8 * 8
     height = int(_clamp(height, cfg.MIN_SIDE, cfg.MAX_SIDE, 512)) // 8 * 8
     width = max(cfg.MIN_SIDE, width)
     height = max(cfg.MIN_SIDE, height)
-    if width * height > cfg.MAX_PIXELS:
+
+    # Frames multiply the cost of every pixel, so clips get a tighter cap.
+    pixel_cap = cfg.MAX_VIDEO_PIXELS if kind == "video" else cfg.MAX_PIXELS
+    if width * height > pixel_cap:
         raise ApiError(
             400,
-            f"{width}x{height} exceeds the {cfg.MAX_PIXELS:,} pixel limit",
+            f"{width}x{height} exceeds the {pixel_cap:,} pixel limit"
+            + (" for video" if kind == "video" else ""),
+        )
+
+    video_format = str(payload.get("video_format") or "auto").strip().lower()
+    if video_format not in ("auto", "mp4", "apng"):
+        raise ApiError(400, "video_format must be 'auto', 'mp4' or 'apng'")
+    if kind == "video" and video_format == "mp4" and not ffmpeg_path():
+        raise ApiError(
+            400,
+            "MP4 output needs ffmpeg on this machine. Install it, or use "
+            "'apng', or leave video_format on 'auto'.",
         )
 
     seed = payload.get("seed", -1)
@@ -147,6 +170,11 @@ def build_request(payload: dict[str, Any]) -> GenerationRequest:
         strength=round(_clamp(payload.get("strength"), 0.05, 1.0, 0.6), 2),
         palette=palette,
         reference_id=str(reference_id) if reference_id else None,
+        kind=kind,
+        frames=int(_clamp(payload.get("frames"), cfg.MIN_FRAMES, cfg.MAX_FRAMES, 24)),
+        fps=round(_clamp(payload.get("fps"), cfg.MIN_FPS, cfg.MAX_FPS, 12), 2),
+        motion=round(_clamp(payload.get("motion"), 0.0, 2.0, 1.0), 2),
+        video_format=video_format,
     )
 
 
@@ -412,6 +440,20 @@ class ForgeHandler(BaseHTTPRequestHandler):
                     "max_pixels": cfg.MAX_PIXELS,
                     "max_batch": cfg.MAX_BATCH,
                     "max_steps": cfg.MAX_STEPS,
+                    "max_frames": cfg.MAX_FRAMES,
+                    "min_frames": cfg.MIN_FRAMES,
+                    "max_fps": cfg.MAX_FPS,
+                    "max_video_pixels": cfg.MAX_VIDEO_PIXELS,
+                },
+                "video": {
+                    "supported": any(
+                        e.supports_video for e in server.registry.all()
+                        if e.available()
+                    ),
+                    "formats": available_formats(),
+                    "default_format": default_format(),
+                    "ffmpeg": bool(ffmpeg_path()),
+                    "defaults": {"frames": 24, "fps": 12, "motion": 1.0},
                 },
                 "defaults": {
                     "width": 512,
@@ -659,13 +701,14 @@ class ForgeHandler(BaseHTTPRequestHandler):
             tags=[str(tag)[:80] for tag in (raw.get("tags") or [])][:20],
             width=int(_clamp(raw.get("width"), 0, 100000, 0)),
             height=int(_clamp(raw.get("height"), 0, 100000, 0)),
+            kind="video" if raw.get("kind") == "video" else "image",
             extra=raw.get("extra") if isinstance(raw.get("extra"), dict) else {},
         )
 
         image, content_type = b"", ""
         if reference.image_url or reference.thumb_url:
             try:
-                image, content_type = server.hub.fetch_image(reference)
+                image, content_type = server.hub.fetch_media(reference)
             except (NetworkBlocked, NetworkError) as exc:
                 # The text of a reference is still worth keeping even when its
                 # image sits on a host we are not allowed to reach.
@@ -681,6 +724,7 @@ class ForgeHandler(BaseHTTPRequestHandler):
                 "license": reference.license,
                 "author": reference.author,
                 "tags": reference.tags,
+                "kind": reference.kind,
                 "width": reference.width,
                 "height": reference.height,
                 "extra": {**reference.extra, "upstream_id": reference.id},

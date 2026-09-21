@@ -18,7 +18,8 @@ import time
 from typing import Any, Iterator
 
 from ..png import encode_png
-from .base import Engine, GeneratedImage, GenerationRequest, JobContext
+from ..video import encode_video
+from .base import Engine, GeneratedMedia, GenerationRequest, JobContext
 
 # ---------------------------------------------------------------- prompt cues
 
@@ -299,10 +300,11 @@ class ProceduralEngine(Engine):
     label = "Procedural (no weights)"
     description = (
         "Built-in renderer. Reads the prompt for colour, mood and composition "
-        "cues and paints layered noise fields. Not a trained model - it runs "
-        "anywhere, instantly, with nothing installed."
+        "cues and paints layered noise fields, still or moving. Not a trained "
+        "model - it runs anywhere, instantly, with nothing installed."
     )
     is_neural = False
+    supports_video = True
 
     def available(self) -> bool:
         return True
@@ -335,34 +337,71 @@ class ProceduralEngine(Engine):
             fw = max(16, int(fh * width / height))
         return fw, fh
 
+    @staticmethod
+    def _field_setup(rng: random.Random) -> dict[str, Any]:
+        """Everything a field needs that must NOT change between frames.
+
+        Drawing these once is what keeps a clip stable: re-rolling the lattice
+        or the composition per frame would make the whole image boil.
+        """
+        return {
+            "lat": Lattice(rng, 64),
+            "warp_lat": Lattice(rng, 32),
+            "scale": rng.uniform(2.2, 3.8),
+            "ox": rng.uniform(0, 40),
+            "oy": rng.uniform(0, 40),
+            "horizon": rng.uniform(0.42, 0.62),
+            "haze": rng.uniform(0.05, 0.14),
+            "cx": rng.uniform(0.38, 0.62),
+            "cy": rng.uniform(0.36, 0.58),
+            "rings": rng.randint(3, 7),
+            "cols": rng.randint(3, 8),
+            "rows": rng.randint(3, 8),
+            "cells": [rng.random() for _ in range(64)],
+            "gutter": rng.uniform(0.012, 0.035),
+        }
+
     def _build_field(
         self,
         style: Style,
-        rng: random.Random,
+        setup: dict[str, Any],
         fw: int,
         fh: int,
         octaves: int,
         ctx: JobContext,
         base_step: int,
         total_steps: int,
-    ) -> list[float]:
-        lat = Lattice(rng, 64)
-        warp_lat = Lattice(rng, 32)
-        scale = rng.uniform(2.2, 3.8)
+        phase: float = 0.0,
+        motion: float = 1.0,
+        norm: tuple[float, float] | None = None,
+    ) -> tuple[list[float], tuple[float, float]]:
+        lat = setup["lat"]
+        warp_lat = setup["warp_lat"]
+        scale = setup["scale"]
         warp = style.warp
-        ox, oy = rng.uniform(0, 40), rng.uniform(0, 40)
         kind = style.kind
-        horizon = rng.uniform(0.42, 0.62)
-        haze = rng.uniform(0.05, 0.14)          # softness of the horizon line
+        horizon = setup["horizon"]
+        haze = setup["haze"]                    # softness of the horizon line
         sigma2 = 2.0 * (haze * 0.9) ** 2        # width of the light band on it
-        cx, cy = rng.uniform(0.38, 0.62), rng.uniform(0.36, 0.58)
-        rings = rng.randint(3, 7)
-        cols = rng.randint(3, 8)
-        rows = rng.randint(3, 8)
-        cells = [rng.random() for _ in range(cols * rows)]
-        gutter = rng.uniform(0.012, 0.035)
+        cx, cy = setup["cx"], setup["cy"]
+        rings = setup["rings"]
+        cols, rows = setup["cols"], setup["rows"]
+        cells = setup["cells"]
+        gutter = setup["gutter"]
         fbm = lat.fbm
         wfbm = warp_lat.fbm
+
+        # Motion walks the sampling point around a circle. Because the lattice
+        # wraps, phase 1.0 lands exactly back on phase 0.0, so the clip loops
+        # with no visible seam.
+        angle = 2.0 * math.pi * phase
+        drift = 0.42 * max(0.0, motion)
+        ox = setup["ox"] + math.cos(angle) * drift
+        oy = setup["oy"] + math.sin(angle) * drift
+        # The warp layer turns the other way, so the texture churns internally
+        # instead of only sliding.
+        wox = math.cos(-angle) * drift * 0.6
+        woy = math.sin(-angle) * drift * 0.6
 
         field = [0.0] * (fw * fh)
         for j in range(fh):
@@ -375,8 +414,9 @@ class ProceduralEngine(Engine):
                 u_norm = i / fw
                 # Domain warp: the noise looks up a displaced coordinate, which
                 # is what turns bland fbm into something that flows.
-                wx = wfbm(u_norm * 2.0 + ox, v_norm * 2.0 + oy, 2) - 0.5
-                wy = wfbm(u_norm * 2.0 + ox + 9.7, v_norm * 2.0 + oy + 4.1, 2) - 0.5
+                wx = wfbm(u_norm * 2.0 + ox + wox, v_norm * 2.0 + oy + woy, 2) - 0.5
+                wy = wfbm(u_norm * 2.0 + ox + wox + 9.7,
+                          v_norm * 2.0 + oy + woy + 4.1, 2) - 0.5
                 x = u_norm * scale + wx * warp
                 y = v_norm * scale + wy * warp
                 v = fbm(x + ox, y + oy, octaves)
@@ -418,48 +458,49 @@ class ProceduralEngine(Engine):
                     cj = int(v_norm * rows)
                     ci = cols - 1 if ci >= cols else ci
                     cj = rows - 1 if cj >= rows else cj
-                    tone = cells[cj * cols + ci]
+                    tone = cells[(cj * cols + ci) % len(cells)]
                     fx = u_norm * cols - ci
                     fy = v_norm * rows - cj
                     edge = min(fx, 1.0 - fx, fy, 1.0 - fy)
                     v = tone * 0.66 + v * 0.34 + (0.0 if edge > gutter else -0.4)
                 field[row + i] = v
 
-        lo = min(field)
-        hi = max(field)
+        if norm is None:
+            lo, hi = min(field), max(field)
+        else:
+            lo, hi = norm
         span = (hi - lo) or 1.0
-        return [(value - lo) / span for value in field]
+        scaled = []
+        for value in field:
+            normalised = (value - lo) / span
+            # Later frames can drift outside frame 0's range; clamping beats
+            # re-normalising, which would make the whole clip pulse.
+            scaled.append(0.0 if normalised < 0.0 else
+                          (1.0 if normalised > 1.0 else normalised))
+        return scaled, (lo, hi)
 
     # -- render ------------------------------------------------------------
 
-    def _render(
+    def _paint(
         self,
-        request: GenerationRequest,
-        seed: int,
+        field: list[float],
+        style: Style,
+        grain: list[int],
+        width: int,
+        height: int,
+        fw: int,
+        fh: int,
+        push: float,
+        col_d: list[float],
+        inv_r2: float,
+        rng_stars: random.Random | None,
         ctx: JobContext,
-    ) -> tuple[bytes, dict[str, Any]]:
-        width, height = request.width, request.height
-        rng = random.Random(f"{seed}:{request.prompt}:{request.sampler}")
-        style = Style(request.prompt, request.negative, rng, palette=request.palette)
-        octaves = 2 + max(0, min(5, request.steps // 8))
-        total_steps = 10
-        fw, fh = self._field_size(width, height, request.steps)
-
-        ctx.progress(1, total_steps, "composing")
-        field = self._build_field(style, rng, fw, fh, octaves, ctx, 1, total_steps)
-
-        # Guidance behaves like contrast/strength here: higher pushes the
-        # palette apart, which is the closest honest analogue to CFG.
-        push = max(0.35, min(2.0, request.guidance / 7.0))
+        base_step: int,
+        total_steps: int,
+    ) -> bytes:
+        """Map one normalised field onto pixels. The hot loop of the engine."""
         lut = style.lut
-        grain_amp = style.grain
-        grain = [rng.randint(-grain_amp, grain_amp) for _ in range(4096)]
-
-        # Vignette + light falloff tables so the pixel loop stays cheap.
         cx, cy = width / 2.0, height / 2.0
-        inv_r2 = 1.0 / (cx * cx + cy * cy)
-        col_d = [((x - cx) ** 2) * inv_r2 for x in range(width)]
-
         out = bytearray(width * height * 3)
         pos = 0
         gi = 0
@@ -470,7 +511,7 @@ class ProceduralEngine(Engine):
         for y in range(height):
             if y % 24 == 0:
                 ctx.check_cancel()
-                ctx.progress(7 + int(y / height * 3), total_steps, "painting")
+                ctx.progress(base_step, total_steps, "painting")
             fy = y * y_scale
             y0 = int(fy)
             y1 = min(fh - 1, y0 + 1)
@@ -523,9 +564,64 @@ class ProceduralEngine(Engine):
                 out[pos + 2] = 0 if bl < 0 else (255 if bl > 255 else int(bl))
                 pos += 3
 
-        if style.kind == "cosmic":
-            self._scatter_stars(out, width, height, rng)
+        if rng_stars is not None and style.kind == "cosmic":
+            self._scatter_stars(out, width, height, rng_stars)
+        return bytes(out)
 
+    def _render_sequence(
+        self,
+        request: GenerationRequest,
+        seed: int,
+        ctx: JobContext,
+        frame_count: int = 1,
+    ) -> tuple[list[bytes], dict[str, Any]]:
+        """Render one still, or a seamlessly looping sequence of frames."""
+        width, height = request.width, request.height
+        rng = random.Random(f"{seed}:{request.prompt}:{request.sampler}")
+        style = Style(request.prompt, request.negative, rng, palette=request.palette)
+        octaves = 2 + max(0, min(5, request.steps // 8))
+        fw, fh = self._field_size(width, height, request.steps)
+
+        # Drawn once and shared by every frame, so nothing boils between them.
+        setup = self._field_setup(rng)
+        grain_amp = style.grain
+        grain = [rng.randint(-grain_amp, grain_amp) for _ in range(4096)]
+        star_seed = rng.randint(0, 2**31 - 1)
+
+        # Guidance behaves like contrast/strength here: higher pushes the
+        # palette apart, which is the closest honest analogue to CFG.
+        push = max(0.35, min(2.0, request.guidance / 7.0))
+        cx, cy = width / 2.0, height / 2.0
+        inv_r2 = 1.0 / (cx * cx + cy * cy)
+        col_d = [((x - cx) ** 2) * inv_r2 for x in range(width)]
+
+        frame_count = max(1, int(frame_count))
+        total_steps = frame_count * 2
+        frames: list[bytes] = []
+        norm: tuple[float, float] | None = None
+
+        for index in range(frame_count):
+            ctx.check_cancel()
+            # The last frame would be identical to the first, so the phase
+            # stops just short of a full turn and the loop stays even.
+            phase = index / frame_count if frame_count > 1 else 0.0
+            note = f"frame {index + 1}/{frame_count}" if frame_count > 1 else "composing"
+            ctx.progress(index * 2, total_steps, note)
+
+            field, measured = self._build_field(
+                style, setup, fw, fh, octaves, ctx, index * 2, total_steps,
+                phase=phase, motion=request.motion, norm=norm,
+            )
+            # Frame 0 fixes the range every later frame is measured against.
+            if norm is None:
+                norm = measured
+
+            frames.append(self._paint(
+                field, style, grain, width, height, fw, fh, push, col_d, inv_r2,
+                random.Random(star_seed), ctx, index * 2 + 1, total_steps,
+            ))
+
+        ctx.progress(total_steps, total_steps, "done")
         meta = {
             "style": style.kind,
             "palette": ["#%02x%02x%02x" % c for c in style.palette],
@@ -533,7 +629,16 @@ class ProceduralEngine(Engine):
             "field": f"{fw}x{fh}",
             "palette_source": "reference" if style.from_reference else "prompt",
         }
-        return bytes(out), meta
+        return frames, meta
+
+    def _render(
+        self,
+        request: GenerationRequest,
+        seed: int,
+        ctx: JobContext,
+    ) -> tuple[bytes, dict[str, Any]]:
+        frames, meta = self._render_sequence(request, seed, ctx, 1)
+        return frames[0], meta
 
     @staticmethod
     def _scatter_stars(
@@ -557,13 +662,14 @@ class ProceduralEngine(Engine):
 
     def generate(
         self, request: GenerationRequest, ctx: JobContext
-    ) -> Iterator[GeneratedImage]:
+    ) -> Iterator[GeneratedMedia]:
         for index in range(request.batch):
             ctx.check_cancel()
             seed = request.seed_for(index)
             started = time.time()
-            rgb, meta = self._render(request, seed, ctx)
-            meta["render_ms"] = int((time.time() - started) * 1000)
+            frame_count = request.frames if request.is_video else 1
+            frames, meta = self._render_sequence(request, seed, ctx, frame_count)
+
             text = {
                 "Software": "Avernal Forge",
                 "Engine": self.id,
@@ -574,11 +680,28 @@ class ProceduralEngine(Engine):
                 "Guidance": str(request.guidance),
                 "Style": meta["style"],
             }
-            png = encode_png(request.width, request.height, rgb, text)
-            yield GeneratedImage(
-                png=png,
-                seed=seed,
-                width=request.width,
-                height=request.height,
-                meta=meta,
-            )
+
+            if request.is_video:
+                notes: list[str] = []
+                data, fmt, mime, ext = encode_video(
+                    request.width, request.height, frames,
+                    fps=request.fps, text=text, wanted=request.video_format,
+                    on_note=notes.append,
+                )
+                meta["video_format"] = fmt
+                meta["motion"] = request.motion
+                if notes:
+                    meta["note"] = notes[0]
+                meta["render_ms"] = int((time.time() - started) * 1000)
+                yield GeneratedMedia(
+                    data=data, seed=seed, width=request.width, height=request.height,
+                    kind="video", mime=mime, ext=ext,
+                    frames=len(frames), fps=request.fps, meta=meta,
+                )
+            else:
+                meta["render_ms"] = int((time.time() - started) * 1000)
+                yield GeneratedMedia(
+                    data=encode_png(request.width, request.height, frames[0], text),
+                    seed=seed, width=request.width, height=request.height,
+                    kind="image", mime="image/png", ext=".png", meta=meta,
+                )

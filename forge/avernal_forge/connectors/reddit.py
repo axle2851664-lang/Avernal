@@ -96,14 +96,16 @@ class RedditConnector(Connector):
         for child in payload.get("data", {}).get("children", []):
             post = child.get("data") or {}
             image, width, height = self._best_image(post)
+            clip, thumb = self._best_video(post)
             results.append(Reference(
                 id=f"reddit:{post.get('id', '')}",
                 source=self.id,
                 title=self._clean(post.get("title"), 300),
                 summary=self._clean(post.get("selftext"), 600),
                 page_url="https://www.reddit.com" + post.get("permalink", ""),
-                image_url=image,
-                thumb_url=image,
+                image_url=clip or image,
+                thumb_url=thumb or image,
+                kind="video" if clip else "image",
                 license="posted by the author; check before reusing",
                 author="u/" + str(post.get("author", "")),
                 tags=[str(post.get("subreddit", ""))] if post.get("subreddit") else [],
@@ -112,6 +114,23 @@ class RedditConnector(Connector):
                 extra={"score": post.get("score", 0), "nsfw": bool(post.get("over_18"))},
             ))
         return results
+
+    @staticmethod
+    def _best_video(post: dict) -> tuple[str, str]:
+        """Reddit-hosted video, when it offers a plain MP4 fallback.
+
+        The fallback stream is video-only (Reddit serves audio separately via
+        DASH), which is fine for reference material.
+        """
+        media = post.get("media") or post.get("secure_media") or {}
+        video = (media or {}).get("reddit_video") or {}
+        url = html.unescape(video.get("fallback_url", "") or "")
+        if not url:
+            return "", ""
+        thumbnail = post.get("thumbnail", "")
+        if not thumbnail.startswith("http"):
+            thumbnail = ""
+        return url.split("?")[0], thumbnail
 
     @staticmethod
     def _best_image(post: dict) -> tuple[str, int, int]:

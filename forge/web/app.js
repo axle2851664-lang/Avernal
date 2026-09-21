@@ -164,17 +164,44 @@
 
     updateStats(config.stats);
 
+    var video = config.video || {};
+    var formats = video.formats || ["apng"];
+    var formatSelect = $("video-format");
+    formatSelect.innerHTML = "";
+    formats.forEach(function (id) {
+      var option = document.createElement("option");
+      option.value = id;
+      option.textContent = id === "mp4" ? "MP4 (H.264)" : "Animated PNG";
+      formatSelect.appendChild(option);
+    });
+    formatSelect.value = video.default_format || formats[0];
+    $("video-format-hint").textContent = video.ffmpeg
+      ? "MP4 via ffmpeg on this machine."
+      : "ffmpeg is not installed, so clips are written as animated PNG. " +
+        "Install ffmpeg for smaller MP4 files.";
+
+    var videoChip = $("kind-chips").querySelector('[data-kind="video"]');
+    if (video.supported === false) {
+      videoChip.disabled = true;
+      videoChip.title = "No engine on this machine can produce video.";
+    }
+
     var limits = config.limits || {};
     $("width").max = limits.max_side || 2048;
     $("height").max = limits.max_side || 2048;
     $("batch").max = limits.max_batch || 8;
     $("steps").max = Math.min(limits.max_steps || 60, 60);
+    $("frames").max = Math.min(limits.max_frames || 96, 96);
+    $("frames").min = limits.min_frames || 2;
+    $("fps").max = Math.min(limits.max_fps || 30, 30);
     renderApiDocs();
   }
 
   function updateStats(stats) {
     if (!stats) { return; }
-    $("stats-pill").textContent = stats.images + " images · " + bytes(stats.bytes_on_disk);
+    var label = stats.images + " item" + (stats.images === 1 ? "" : "s");
+    if (stats.videos) { label += " · " + stats.videos + " clip" + (stats.videos === 1 ? "" : "s"); }
+    $("stats-pill").textContent = label + " · " + bytes(stats.bytes_on_disk);
   }
 
   function renderSuggestions() {
@@ -194,8 +221,18 @@
 
   /* --------------------------------------------------------- settings */
 
+  function currentKind() {
+    var active = $("kind-chips").querySelector(".chip.is-active");
+    return active ? active.dataset.kind : "image";
+  }
+
   function currentSettings() {
     return {
+      kind: currentKind(),
+      frames: parseInt($("frames").value, 10) || 24,
+      fps: parseInt($("fps").value, 10) || 12,
+      motion: parseFloat($("motion").value),
+      videoFormat: $("video-format").value || "auto",
       prompt: $("prompt").value,
       negative: $("negative").value,
       width: parseInt($("width").value, 10) || 512,
@@ -229,6 +266,10 @@
     $("guidance").value = values.guidance === undefined ? 7 : values.guidance;
     $("batch").value = values.batch || 1;
     $("seed").value = values.seed === undefined || values.seed < 0 ? "" : values.seed;
+    $("frames").value = values.frames || 24;
+    $("fps").value = values.fps || 12;
+    $("motion").value = values.motion === undefined ? 1 : values.motion;
+    setKind(values.kind === "video" ? "video" : "image");
     syncOutputs();
     markActiveSizeChip();
   }
@@ -237,6 +278,26 @@
     $("steps-out").textContent = $("steps").value;
     $("guidance-out").textContent = parseFloat($("guidance").value).toFixed(1);
     $("batch-out").textContent = $("batch").value;
+    $("frames-out").textContent = $("frames").value;
+    $("fps-out").textContent = $("fps").value;
+    $("motion-out").textContent = parseFloat($("motion").value).toFixed(1);
+
+    var frames = parseInt($("frames").value, 10) || 1;
+    var fps = parseInt($("fps").value, 10) || 1;
+    $("kind-hint").textContent = currentKind() === "video"
+      ? (frames / fps).toFixed(1) + "s clip, loops seamlessly"
+      : "";
+  }
+
+  function setKind(kind) {
+    Array.prototype.forEach.call($("kind-chips").children, function (chip) {
+      chip.classList.toggle("is-active", chip.dataset.kind === kind);
+    });
+    $("video-fields").hidden = kind !== "video";
+    if (!$("generate-btn").disabled) {
+      $("generate-btn").textContent = kind === "video" ? "Generate clip" : "Generate";
+    }
+    syncOutputs();
   }
 
   function markActiveSizeChip() {
@@ -250,8 +311,15 @@
   /* --------------------------------------------------------- controls */
 
   function bindControls() {
-    ["steps", "guidance", "batch"].forEach(function (id) {
+    ["steps", "guidance", "batch", "frames", "fps", "motion"].forEach(function (id) {
       $(id).addEventListener("input", syncOutputs);
+    });
+
+    Array.prototype.forEach.call($("kind-chips").children, function (chip) {
+      chip.addEventListener("click", function () {
+        setKind(chip.dataset.kind);
+        saveSettings();
+      });
     });
     ["width", "height"].forEach(function (id) {
       $(id).addEventListener("input", markActiveSizeChip);
@@ -349,6 +417,7 @@
 
     var selected = $("model").selectedOptions[0];
     var payload = {
+      kind: settings.kind,
       prompt: settings.prompt,
       negative: settings.negative,
       width: settings.width,
@@ -359,6 +428,12 @@
       seed: settings.seed,
       sampler: settings.sampler
     };
+    if (settings.kind === "video") {
+      payload.frames = settings.frames;
+      payload.fps = settings.fps;
+      payload.motion = settings.motion;
+      payload.video_format = settings.videoFormat;
+    }
     if (selected && selected.dataset.engine) {
       payload.engine = selected.dataset.engine;
       payload.model = selected.value;
@@ -388,7 +463,9 @@
 
   function setBusy(busy) {
     $("generate-btn").disabled = busy;
-    $("generate-btn").textContent = busy ? "Generating…" : "Generate";
+    $("generate-btn").textContent = busy
+      ? "Generating…"
+      : (currentKind() === "video" ? "Generate clip" : "Generate");
     $("cancel-btn").hidden = !busy;
     $("stage-progress").hidden = !busy;
     if (!busy) { state.job = null; }
@@ -440,7 +517,8 @@
     if (job.status === "done") {
       var seconds = job.finished_at && job.started_at
         ? (job.finished_at - job.started_at).toFixed(1) : "?";
-      toast(job.images.length + " image" + (job.images.length === 1 ? "" : "s") +
+      var noun = (job.request && job.request.kind === "video") ? "clip" : "image";
+      toast(job.images.length + " " + noun + (job.images.length === 1 ? "" : "s") +
         " in " + seconds + "s", "ok");
       refreshStats();
     }
@@ -460,13 +538,11 @@
     grid.hidden = false;
     grid.innerHTML = "";
     state.stage.forEach(function (image) {
-      var img = document.createElement("img");
-      img.src = image.url;
-      img.alt = image.prompt;
-      img.addEventListener("click", function () {
+      var node = mediaElement(image, { autoplay: true });
+      node.addEventListener("click", function () {
         openLightbox(state.stage.indexOf(image), state.stage);
       });
-      grid.appendChild(img);
+      grid.appendChild(node);
     });
   }
 
@@ -505,11 +581,14 @@
     card.className = "card";
     card.dataset.id = image.id;
 
-    var img = document.createElement("img");
-    img.src = image.url;
-    img.alt = image.prompt;
-    img.loading = "lazy";
-    card.appendChild(img);
+    card.appendChild(mediaElement(image, { lazy: true }));
+
+    if (image.kind === "video") {
+      var clip = document.createElement("span");
+      clip.className = "card__clip";
+      clip.textContent = image.frames ? image.frames + "f" : "clip";
+      card.appendChild(clip);
+    }
 
     if (image.favorite) {
       var star = document.createElement("span");
@@ -569,11 +648,18 @@
   function renderLightbox() {
     var image = currentImage();
     if (!image) { return; }
-    $("lightbox-img").src = image.url;
-    $("lightbox-img").alt = image.prompt;
+
+    // Swap the element itself, since a clip may need <video> where the last
+    // one needed <img>.
+    var current = $("lightbox-img");
+    var node = mediaElement(image, { autoplay: true, controls: isVideoFile(image) });
+    node.id = "lightbox-img";
+    current.replaceWith(node);
+
     $("lightbox-prompt").textContent = image.prompt || "(no prompt)";
     $("lightbox-download").href = image.url;
-    $("lightbox-download").setAttribute("download", "forge-" + image.seed + ".png");
+    $("lightbox-download").setAttribute(
+      "download", "forge-" + image.seed + "." + mediaExtension(image));
     $("lightbox-fav").textContent = image.favorite ? "★ Favourited" : "☆ Favourite";
 
     var rows = [
@@ -586,6 +672,10 @@
       ["Sampler", image.sampler],
       ["Made", when(image.created_at)]
     ];
+    if (image.kind === "video") {
+      rows.splice(2, 0, ["Clip", image.frames + " frames @ " + image.fps + "fps"]);
+      rows.splice(3, 0, ["Length", (image.frames / (image.fps || 1)).toFixed(1) + "s"]);
+    }
     if (image.negative) { rows.push(["Negative", image.negative]); }
     if (image.extra && image.extra.style) { rows.push(["Style", image.extra.style]); }
     if (image.duration_ms) { rows.push(["Render", (image.duration_ms / 1000).toFixed(1) + "s"]); }
@@ -615,6 +705,11 @@
     $("guidance").value = image.guidance;
     $("seed").value = image.seed;
     if (image.sampler) { $("sampler").value = image.sampler; }
+    if (image.kind === "video") {
+      $("frames").value = image.frames || 24;
+      $("fps").value = image.fps || 12;
+    }
+    setKind(image.kind === "video" ? "video" : "image");
     syncOutputs();
     markActiveSizeChip();
     saveSettings();
@@ -660,6 +755,42 @@
   }
 
 
+
+  /* ------------------------------------------------------------- media */
+
+  /* An APNG clip is still a PNG, and <img> animates it natively; only a real
+     video container needs <video>. So the element is chosen by mime type, not
+     by whether the record is a clip. */
+  function isVideoFile(record) {
+    return String(record.mime || "").indexOf("video/") === 0;
+  }
+
+  function mediaElement(record, options) {
+    options = options || {};
+    var node;
+    if (isVideoFile(record)) {
+      node = document.createElement("video");
+      node.src = record.url;
+      node.loop = true;
+      node.muted = true;
+      node.playsInline = true;
+      node.preload = options.controls ? "auto" : "metadata";
+      if (options.autoplay) { node.autoplay = true; }
+      if (options.controls) { node.controls = true; }
+    } else {
+      node = document.createElement("img");
+      node.src = record.url;
+      node.alt = record.prompt || "";
+      if (options.lazy) { node.loading = "lazy"; }
+    }
+    return node;
+  }
+
+  function mediaExtension(record) {
+    var match = /\.([a-z0-9]+)(?:\?|$)/i.exec(record.url || "");
+    return match ? match[1] : "png";
+  }
+
   /* -------------------------------------------------------- references */
 
   function setReference(record, palette) {
@@ -669,11 +800,18 @@
       source: record.source || "",
       license: record.license || "",
       url: record.local_url || "",
+      mime: record.mime || "",
       palette: palette || []
     };
 
-    $("reference-thumb").src = state.reference.url;
-    $("reference-thumb").alt = state.reference.title;
+    var thumb = $("reference-thumb");
+    var replacement = mediaElement(
+      { url: state.reference.url, mime: state.reference.mime || "",
+        prompt: state.reference.title },
+      { autoplay: true }
+    );
+    replacement.id = "reference-thumb";
+    thumb.replaceWith(replacement);
     $("reference-title").textContent = state.reference.title;
     $("reference-meta").textContent = [state.reference.source, state.reference.license]
       .filter(Boolean).join(" · ");

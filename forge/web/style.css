@@ -665,3 +665,57 @@ input[type="range"]::-moz-range-thumb {
 .netlog th { color: var(--muted-dim); font-family: var(--font); text-transform: uppercase; font-size: 10.5px; letter-spacing: .06em; }
 .netlog td.is-blocked { color: #e06c6c; }
 .netlog td.url { word-break: break-all; }
+
+
+/* ------------------------------------------------------------ video ---- */
+
+.stage__grid video {
+  width: 100%;
+  max-height: 62vh;
+  object-fit: contain;
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  cursor: zoom-in;
+  animation: rise .35s ease both;
+}
+
+.card video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  background: var(--bg);
+}
+
+/* Marks a gallery tile as a clip, since a paused frame looks like a still. */
+.card__clip {
+  position: absolute;
+  top: 7px; left: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 7px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, .74);
+  color: #f0f0f0;
+}
+.card__clip::before {
+  content: "";
+  border-style: solid;
+  border-width: 4px 0 4px 6px;
+  border-color: transparent transparent transparent var(--accent);
+}
+
+.lightbox__inner video {
+  width: 100%;
+  max-height: 78vh;
+  object-fit: contain;
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+}
+
+.reference-card video { width: 64px; height: 64px; flex: none; object-fit: cover;
+  border-radius: 9px; background: var(--bg); }

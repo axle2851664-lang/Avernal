@@ -113,7 +113,7 @@ class DiffusersEngine(Engine):
         return device
 
     def models(self) -> list[dict[str, Any]]:
-        return model_registry.discover(self.config.models_dir)
+        return model_registry.discover(self.config.models_dir, media="image")
 
     # -------------------------------------------------------------- loading
 

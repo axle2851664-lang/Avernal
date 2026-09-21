@@ -74,10 +74,13 @@ class MastodonConnector(Connector):
         results: list[Reference] = []
         for status in payload if isinstance(payload, list) else []:
             media = [m for m in (status.get("media_attachments") or [])
-                     if m.get("type") in ("image", "gifv")]
+                     if m.get("type") in ("image", "gifv", "video")]
             if not media:
                 continue
             first = media[0]
+            # gifv and video attachments are MP4 files, not images. Marking
+            # them as video is what stops them being saved as .jpg.
+            is_clip = first.get("type") in ("gifv", "video")
             original = (first.get("meta") or {}).get("original") or {}
             account = status.get("account") or {}
             results.append(Reference(
@@ -93,7 +96,9 @@ class MastodonConnector(Connector):
                 tags=[t.get("name", "") for t in (status.get("tags") or [])][:10],
                 width=int(original.get("width") or 0),
                 height=int(original.get("height") or 0),
-                extra={"instance": host, "alt": first.get("description") or ""},
+                kind="video" if is_clip else "image",
+                extra={"instance": host, "alt": first.get("description") or "",
+                       "media_type": first.get("type", "")},
             ))
         return results
 
@@ -153,8 +158,17 @@ class BlueskyConnector(Connector):
         for post in payload.get("posts", []):
             record = post.get("record") or {}
             author = post.get("author") or {}
-            images = ((post.get("embed") or {}).get("images")) or []
+            embed = post.get("embed") or {}
+            images = embed.get("images") or []
             first = images[0] if images else {}
+            # Bluesky serves video as an HLS playlist rather than one file, so
+            # the thumbnail is what Forge can actually use; the playlist URL is
+            # recorded so it is not silently lost.
+            playlist = embed.get("playlist") or ""
+            if not first and playlist:
+                first = {"fullsize": embed.get("thumbnail", ""),
+                         "thumb": embed.get("thumbnail", ""),
+                         "alt": embed.get("alt", "")}
             handle = author.get("handle", "")
             uri = post.get("uri", "")
             rkey = uri.rsplit("/", 1)[-1] if uri else ""
@@ -168,6 +182,7 @@ class BlueskyConnector(Connector):
                 thumb_url=first.get("thumb", "") or first.get("fullsize", ""),
                 license="posted by the author; check before reusing",
                 author="@" + str(handle),
-                extra={"alt": first.get("alt", ""), "likes": post.get("likeCount", 0)},
+                extra={"alt": first.get("alt", ""), "likes": post.get("likeCount", 0),
+                       "video_playlist": playlist},
             ))
         return results

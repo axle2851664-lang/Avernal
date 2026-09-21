@@ -82,6 +82,9 @@ class Job:
                 "batch": req.batch,
                 "sampler": req.sampler,
                 "model": req.model,
+                "kind": req.kind,
+                "frames": req.frames if req.is_video else 1,
+                "fps": req.fps if req.is_video else 0,
             },
         }
 
@@ -224,12 +227,14 @@ class JobQueue:
         job.started_at = started
         ctx = _Context(job, self.emit)
         try:
-            engine = self.registry.resolve(job.engine_id)
+            engine = self.registry.resolve(
+                job.engine_id, want_video=job.request.is_video
+            )
             job.engine_id = engine.id
             self.emit({"type": "job", "job": job.public()})
 
             produced = 0
-            for image in engine.generate(job.request, ctx):
+            for media in engine.generate(job.request, ctx):
                 ctx.check_cancel()
                 record = self.gallery.add(
                     {
@@ -237,18 +242,23 @@ class JobQueue:
                         "prompt": job.request.prompt,
                         "negative": job.request.negative,
                         "engine": engine.id,
-                        "model": str(image.meta.get("model") or job.request.model or engine.id),
-                        "sampler": str(image.meta.get("sampler") or job.request.sampler),
-                        "width": image.width,
-                        "height": image.height,
+                        "model": str(media.meta.get("model") or job.request.model or engine.id),
+                        "sampler": str(media.meta.get("sampler") or job.request.sampler),
+                        "width": media.width,
+                        "height": media.height,
                         "steps": job.request.steps,
                         "guidance": job.request.guidance,
-                        "seed": image.seed,
-                        "duration_ms": int(image.meta.get("render_ms", 0)),
+                        "seed": media.seed,
+                        "duration_ms": int(media.meta.get("render_ms", 0)),
                         "job_id": job.id,
-                        "extra": image.meta,
+                        "kind": media.kind,
+                        "mime": media.mime,
+                        "extension": media.ext,
+                        "frames": media.frames,
+                        "fps": media.fps,
+                        "extra": media.meta,
                     },
-                    image.png,
+                    media.data,
                 )
                 job.images.append(record)
                 produced += 1
@@ -261,7 +271,7 @@ class JobQueue:
             else:
                 self._finish(job, DONE)
                 self.on_log(
-                    f"job {job.id} produced {produced} image(s) in "
+                    f"job {job.id} produced {produced} item(s) in "
                     f"{time.time() - started:.1f}s via {job.engine_id}"
                 )
         except Cancelled:
