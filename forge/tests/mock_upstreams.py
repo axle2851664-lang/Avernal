@@ -147,6 +147,22 @@ VIDEO_PAGE_HTML = b"""<html><head><title>Clip</title>
 <meta property="og:video:type" content="video/mp4">
 <meta property="og:image" content="/media/barn.jpg"></head><body></body></html>"""
 
+#: A Hugging-Face-shaped repo, so the installer can be exercised offline.
+HF_REPO_FILES = [
+    "model_index.json",
+    "unet/config.json",
+    "unet/diffusion_pytorch_model.safetensors",
+    "unet/diffusion_pytorch_model.bin",          # duplicate format, skipped
+    "vae/config.json",
+    "vae/diffusion_pytorch_model.safetensors",
+    "text_encoder/config.json",
+    "text_encoder/model.safetensors",
+    "tokenizer/vocab.json",
+    "tokenizer/merges.txt",
+    "onnx/unet/model.onnx",                       # other runtime, skipped
+    "README.md",                                  # not a pipeline file
+]
+
 ROBOTS_OPEN = b"User-agent: *\nAllow: /\n"
 ROBOTS_CLOSED = b"User-agent: *\nDisallow: /private\nDisallow: /listing\n"
 
@@ -184,6 +200,43 @@ class _Handler(BaseHTTPRequestHandler):
 
         if path == "/robots.txt":
             return self._send(ROBOTS_OPEN, content_type="text/plain")
+
+        # --- Hugging Face shapes ---
+        if path.startswith("/api/models/"):
+            repo = path[len("/api/models/"):]
+            if "gated" in repo and not self.headers.get("Authorization"):
+                return self._send({"error": "Access to model is restricted"}, 401)
+            if "missing" in repo:
+                return self._send({"error": "Repo not found"}, 404)
+            return self._send({
+                "id": repo,
+                "siblings": [{"rfilename": name} for name in HF_REPO_FILES],
+            })
+        if "/resolve/main/" in path:
+            name = path.split("/resolve/main/", 1)[1]
+            if "gated" in path and not self.headers.get("Authorization"):
+                return self._send({"error": "restricted"}, 401)
+            # Deterministic filler, sized so progress reporting has something
+            # to report.
+            body = (f"weights:{name}:".encode() + b"\x00" * 5000)[:5000]
+            start = 0
+            rng = self.headers.get("Range", "")
+            if rng.startswith("bytes="):
+                try:
+                    start = int(rng[len("bytes="):].split("-")[0])
+                except ValueError:
+                    start = 0
+            if start:
+                chunk = body[start:]
+                self.send_response(206)
+                self.send_header("Content-Type", "application/octet-stream")
+                self.send_header("Content-Length", str(len(chunk)))
+                self.send_header("Content-Range",
+                                 f"bytes {start}-{len(body) - 1}/{len(body)}")
+                self.end_headers()
+                self.wfile.write(chunk)
+                return
+            return self._send(body, content_type="application/octet-stream")
         if path == "/closed/robots.txt":
             return self._send(ROBOTS_CLOSED, content_type="text/plain")
         if path == "/page.html":

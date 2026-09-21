@@ -22,7 +22,9 @@
     lightboxSource: [],
     events: null,
     retry: 0,
-    reference: null
+    reference: null,
+    presets: [],
+    hasNeural: false
   };
 
   var SUGGESTIONS = [
@@ -162,7 +164,35 @@
       $("model-warn").hidden = false;
     }
 
+    // The difference between abstract fields and photorealistic people is
+    // weights, not a setting, so say so rather than implying otherwise.
+    var hasNeural = (config.engines || []).some(function (engine) {
+      return engine.neural && engine.available;
+    });
+    state.hasNeural = hasNeural;
+    $("capability-notice").hidden = hasNeural;
+    // The Look list stays readable without a model: it is ignored rather than
+    // inapplicable, and the hint says so. The detail pass is a genuine no-op
+    // on the procedural engine, so that one really is disabled.
+    $("detail-pass").disabled = !hasNeural;
+    $("detail-line").classList.toggle("is-off", !hasNeural);
+    updateStyleHint();
+
     updateStats(config.stats);
+
+    var presets = config.presets || [];
+    var styleSelect = $("style-preset");
+    styleSelect.innerHTML = "";
+    presets.forEach(function (preset) {
+      var option = document.createElement("option");
+      option.value = preset.id;
+      option.textContent = preset.label;
+      option.dataset.description = preset.description;
+      option.dataset.neuralOnly = String(preset.neural_only);
+      option.dataset.suggests = JSON.stringify(preset.suggests || {});
+      styleSelect.appendChild(option);
+    });
+    state.presets = presets;
 
     var video = config.video || {};
     var formats = video.formats || ["apng"];
@@ -229,6 +259,8 @@
   function currentSettings() {
     return {
       kind: currentKind(),
+      style: $("style-preset").value || "none",
+      detailPass: $("detail-pass").checked,
       frames: parseInt($("frames").value, 10) || 24,
       fps: parseInt($("fps").value, 10) || 12,
       motion: parseFloat($("motion").value),
@@ -266,6 +298,8 @@
     $("guidance").value = values.guidance === undefined ? 7 : values.guidance;
     $("batch").value = values.batch || 1;
     $("seed").value = values.seed === undefined || values.seed < 0 ? "" : values.seed;
+    if (values.style) { $("style-preset").value = values.style; }
+    $("detail-pass").checked = !!values.detailPass;
     $("frames").value = values.frames || 24;
     $("fps").value = values.fps || 12;
     $("motion").value = values.motion === undefined ? 1 : values.motion;
@@ -290,6 +324,13 @@
   }
 
   function setKind(kind) {
+    $("style-preset").addEventListener("change", function () {
+      updateStyleHint();
+      applyPresetSuggestions();
+      saveSettings();
+    });
+    $("detail-pass").addEventListener("change", saveSettings);
+
     Array.prototype.forEach.call($("kind-chips").children, function (chip) {
       chip.classList.toggle("is-active", chip.dataset.kind === kind);
     });
@@ -308,12 +349,52 @@
     });
   }
 
+
+  function updateStyleHint() {
+    var option = $("style-preset").selectedOptions[0];
+    if (!option) { $("style-hint").textContent = ""; return; }
+    if (!state.hasNeural && option.dataset.neuralOnly === "true") {
+      $("style-hint").textContent =
+        "Looks apply to trained models; the built-in renderer ignores them.";
+      return;
+    }
+    $("style-hint").textContent = option.dataset.description || "";
+  }
+
+  function applyPresetSuggestions() {
+    var option = $("style-preset").selectedOptions[0];
+    if (!option || !state.hasNeural) { return; }
+    var suggests = {};
+    try { suggests = JSON.parse(option.dataset.suggests || "{}"); } catch (e) { return; }
+
+    // Suggestions, not rules: they fill the controls so they stay visible and
+    // editable rather than being applied invisibly at generation time.
+    if (suggests.steps) { $("steps").value = suggests.steps; }
+    if (suggests.guidance) { $("guidance").value = suggests.guidance; }
+    if (suggests.width && suggests.height) {
+      $("width").value = suggests.width;
+      $("height").value = suggests.height;
+      markActiveSizeChip();
+    }
+    if (suggests.detail_pass !== undefined) {
+      $("detail-pass").checked = !!suggests.detail_pass;
+    }
+    syncOutputs();
+  }
+
   /* --------------------------------------------------------- controls */
 
   function bindControls() {
     ["steps", "guidance", "batch", "frames", "fps", "motion"].forEach(function (id) {
       $(id).addEventListener("input", syncOutputs);
     });
+
+    $("style-preset").addEventListener("change", function () {
+      updateStyleHint();
+      applyPresetSuggestions();
+      saveSettings();
+    });
+    $("detail-pass").addEventListener("change", saveSettings);
 
     Array.prototype.forEach.call($("kind-chips").children, function (chip) {
       chip.addEventListener("click", function () {
@@ -418,6 +499,8 @@
     var selected = $("model").selectedOptions[0];
     var payload = {
       kind: settings.kind,
+      style: settings.style,
+      detail_pass: settings.detailPass,
       prompt: settings.prompt,
       negative: settings.negative,
       width: settings.width,
@@ -678,6 +761,11 @@
     }
     if (image.negative) { rows.push(["Negative", image.negative]); }
     if (image.extra && image.extra.style) { rows.push(["Style", image.extra.style]); }
+    if (image.extra && image.extra.detail_pass) { rows.push(["Detail pass", "yes"]); }
+    if (image.extra && image.extra.final_prompt &&
+        image.extra.final_prompt !== image.prompt) {
+      rows.push(["Sent to model", image.extra.final_prompt]);
+    }
     if (image.duration_ms) { rows.push(["Render", (image.duration_ms / 1000).toFixed(1) + "s"]); }
 
     var list = $("lightbox-dl");
@@ -705,6 +793,13 @@
     $("guidance").value = image.guidance;
     $("seed").value = image.seed;
     if (image.sampler) { $("sampler").value = image.sampler; }
+    if (image.extra && image.extra.style) {
+      $("style-preset").value = image.extra.style;
+      updateStyleHint();
+    }
+    if (image.extra && image.extra.detail_pass !== undefined) {
+      $("detail-pass").checked = !!image.extra.detail_pass;
+    }
     if (image.kind === "video") {
       $("frames").value = image.frames || 24;
       $("fps").value = image.fps || 12;

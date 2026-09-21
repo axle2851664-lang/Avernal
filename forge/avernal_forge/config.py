@@ -60,6 +60,8 @@ class Config:
     online_forced: bool = False
     #: Permits loopback/private targets. Only for tests and self-hosted instances.
     allow_private_hosts: bool = False
+    #: Hugging Face token, for installing gated models only.
+    hf_token: str | None = None
     quiet: bool = False
 
     @property

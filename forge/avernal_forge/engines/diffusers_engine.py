@@ -47,6 +47,8 @@ class DiffusersEngine(Engine):
         self._lock = threading.Lock()
         self._pipe: Any = None
         self._pipe_key: tuple[str, str] | None = None
+        self._refiner: Any = None
+        self._refiner_key: tuple[str, str] | None = None
         self._device: str | None = None
         self._import_error: str = ""
 
@@ -210,6 +212,80 @@ class DiffusersEngine(Engine):
             rgb = image.convert("RGB")
             return encode_png(rgb.width, rgb.height, rgb.tobytes(), text)
 
+    def _img2img_view(self, pipe: Any) -> Any:
+        """An img2img pipeline sharing this one's weights.
+
+        `from_pipe` reuses the already-loaded components, so the detail pass
+        costs no extra VRAM beyond the working tensors.
+        """
+        if self._refiner is not None and self._refiner_key == self._pipe_key:
+            return self._refiner
+        import diffusers  # noqa: PLC0415
+
+        try:
+            refiner = diffusers.AutoPipelineForImage2Image.from_pipe(pipe)
+        except Exception:
+            return None
+        if hasattr(refiner, "set_progress_bar_config"):
+            refiner.set_progress_bar_config(disable=True)
+        self._refiner = refiner
+        self._refiner_key = self._pipe_key
+        return refiner
+
+    def _detail_pass(
+        self,
+        pipe: Any,
+        image: Any,
+        prompt: str,
+        negative: str,
+        request: GenerationRequest,
+        generator: Any,
+        ctx: JobContext,
+    ) -> tuple[Any, str]:
+        """Re-render the result larger at low strength.
+
+        This is the standard "hires fix": the first pass decides composition,
+        the second adds the detail that faces and fabric need, without the
+        duplicated limbs that generating large in one pass tends to produce.
+        """
+        refiner = self._img2img_view(pipe)
+        if refiner is None:
+            return image, "detail pass unavailable in this diffusers version"
+
+        from PIL import Image  # noqa: PLC0415
+
+        scale = max(1.0, min(2.0, request.detail_scale))
+        target = (int(image.width * scale) // 8 * 8, int(image.height * scale) // 8 * 8)
+        if target[0] <= image.width and target[1] <= image.height:
+            return image, ""
+
+        ctx.progress(request.steps, request.steps, "detail pass")
+        enlarged = image.resize(target, Image.LANCZOS)
+        try:
+            result = refiner(
+                prompt=prompt,
+                negative_prompt=negative or None,
+                image=enlarged,
+                strength=max(0.05, min(0.9, request.detail_strength)),
+                guidance_scale=request.guidance,
+                num_inference_steps=max(8, request.steps // 2),
+                generator=generator,
+            )
+        except Exception as exc:
+            return image, f"detail pass skipped: {exc}"
+        return result.images[0], ""
+
+    @staticmethod
+    def _was_filtered(result: Any) -> bool:
+        """True when the pipeline's safety checker blanked the image.
+
+        Without this the user gets a black frame and no explanation.
+        """
+        flags = getattr(result, "nsfw_content_detected", None)
+        if isinstance(flags, (list, tuple)):
+            return bool(flags and flags[0])
+        return bool(flags)
+
     def generate(
         self, request: GenerationRequest, ctx: JobContext
     ) -> Iterator[GeneratedImage]:
@@ -262,14 +338,15 @@ class DiffusersEngine(Engine):
                         raise
                     return kwargs.get("callback_kwargs", {}) or {}
 
+                prompt, negative = request.composed(neural=True)
                 call_kwargs: dict[str, Any] = {
-                    "prompt": request.prompt,
+                    "prompt": prompt,
                     "num_inference_steps": request.steps,
                     "guidance_scale": request.guidance,
                     "generator": generator,
                 }
-                if request.negative:
-                    call_kwargs["negative_prompt"] = request.negative
+                if negative:
+                    call_kwargs["negative_prompt"] = negative
                 if init is not None:
                     call_kwargs["image"] = init
                     call_kwargs["strength"] = request.strength
@@ -284,14 +361,26 @@ class DiffusersEngine(Engine):
 
                 result = pipe(**call_kwargs)
                 image = result.images[0]
+                if self._was_filtered(result):
+                    raise RuntimeError(
+                        "The model's safety checker flagged this result, so it "
+                        "was blanked rather than returned. Try rewording the "
+                        "prompt."
+                    )
+
+                note = ""
+                if request.detail_pass and init is None:
+                    image, note = self._detail_pass(
+                        pipe, image, prompt, negative, request, generator, ctx
+                    )
                 elapsed = int((time.time() - started) * 1000)
 
                 text = {
                     "Software": "Avernal Forge",
                     "Engine": self.id,
                     "Model": model["name"],
-                    "Prompt": request.prompt,
-                    "Negative": request.negative,
+                    "Prompt": prompt,
+                    "Negative": negative,
                     "Seed": str(seed),
                     "Steps": str(request.steps),
                     "Guidance": str(request.guidance),
@@ -308,6 +397,10 @@ class DiffusersEngine(Engine):
                         "sampler": sampler,
                         "device": device,
                         "mode": mode,
+                        "style": request.style,
+                        "final_prompt": prompt,
+                        "detail_pass": bool(request.detail_pass and init is None),
+                        "note": note,
                         "render_ms": elapsed,
                     },
                 )

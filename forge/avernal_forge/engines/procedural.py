@@ -577,8 +577,12 @@ class ProceduralEngine(Engine):
     ) -> tuple[list[bytes], dict[str, Any]]:
         """Render one still, or a seamlessly looping sequence of frames."""
         width, height = request.width, request.height
-        rng = random.Random(f"{seed}:{request.prompt}:{request.sampler}")
-        style = Style(request.prompt, request.negative, rng, palette=request.palette)
+        # Presets are lens-and-film vocabulary aimed at trained models; this
+        # renderer reads colour and composition words, so it takes the prompt
+        # as typed.
+        prompt, negative = request.composed(neural=False)
+        rng = random.Random(f"{seed}:{prompt}:{request.sampler}")
+        style = Style(prompt, negative, rng, palette=request.palette)
         octaves = 2 + max(0, min(5, request.steps // 8))
         fw, fh = self._field_size(width, height, request.steps)
 

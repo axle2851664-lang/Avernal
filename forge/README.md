@@ -4,7 +4,8 @@ Image generation that runs entirely on your own machine — and serves its own
 API, so other tools can use **Forge** as their image provider instead of a
 hosted service.
 
-Images and short video clips, generated on your own machine.
+Images and short video clips, generated on your own machine - including
+photorealistic people, once you install a model that can draw them.
 
 **Generation never touches the network.** Prompts, models and output stay on
 your machine, always. There is no telemetry, no account, and no model hub: if a
@@ -36,6 +37,83 @@ gallery beside them.
 
 ---
 
+## Realistic people and video
+
+Photorealism comes from **model weights**, not from settings. Forge's built-in
+renderer paints abstract colour fields; it has no trained weights and cannot
+draw a face, and no option will change that. What it *can* do is run the models
+that draw faces very well - so the job is getting those weights onto your
+machine.
+
+One command each:
+
+```bash
+python3 run.py models --catalogue        # what is on offer, with sizes and VRAM
+python3 run.py models --install sdxl     # photorealistic stills, people included
+python3 run.py models --install svd      # realistic video from a still (gated)
+pip install -r requirements-local-models.txt
+python3 run.py
+```
+
+![The studio saying plainly what it cannot do](docs/realism.png)
+
+Any Hugging Face repository works too, not just the catalogue:
+
+```bash
+python3 run.py models --install stabilityai/stable-diffusion-xl-base-1.0
+```
+
+Gated models (Stable Video Diffusion among them) need their licence accepted on
+the model page first, then `--hf-token YOUR_TOKEN` or `HF_TOKEN` in the
+environment. Installs resume if interrupted - re-run the same command.
+
+**This is the only part of Forge that downloads anything, and it only runs when
+you type it.** Generation never touches the network, and neither does startup.
+Installs go through the same audited gate as everything else, so they appear in
+the network log.
+
+### Looks
+
+The **Look** menu adds the prompt and negative-prompt vocabulary that makes the
+difference between an illustration and a photograph - lens and lighting terms
+on the way in, and the failure modes worth excluding on the way out.
+
+| Look | For |
+| --- | --- |
+| **Photographic** | Reads as a photo rather than an illustration |
+| **Portrait of a person** | Faces: skin texture, catchlights, and the negatives that keep hands and eyes right |
+| **Cinematic** | Film-still framing, shallow focus, graded colour |
+| **Documentary** | Available light, unposed, reportage |
+
+Your own prompt always comes first and your own negative always wins, so a Look
+never quietly overrides what you typed. The prompt is stored as you wrote it;
+what actually went to the model is recorded alongside it.
+
+Looks only affect trained models. The procedural renderer reads prompts for
+colour and composition words, so lens vocabulary would only confuse it - it
+takes your prompt as typed, and the studio says so.
+
+### Detail pass
+
+**Extra detail pass** re-renders the result larger at low strength - the
+standard "hires fix". The first pass settles the composition, the second adds
+the detail faces and fabric need, without the duplicated limbs that generating
+large in one pass tends to produce. It shares the already-loaded weights, so it
+costs time rather than VRAM.
+
+### What to expect
+
+| Want | Install | VRAM |
+| --- | --- | --- |
+| Photoreal stills, people | `sdxl` | ~8GB |
+| Same, on a smaller card | `sd21` | ~6GB |
+| Fast drafts | `sdxl-turbo` | ~8GB |
+| Realistic video from a still | `svd` | ~12GB |
+| Text-to-video | `ltx-video` | ~12GB |
+
+On CPU these run, but slowly enough that a single SDXL image is minutes rather
+than seconds. A GPU is what makes this practical.
+
 ## Three engines
 
 | Engine | Needs | Makes | What it is |
@@ -45,8 +123,9 @@ gallery beside them.
 | **Video diffusion** (optional) | `torch` + `diffusers` + video weights | clips | Stable Video Diffusion, AnimateDiff, LTX, CogVideoX or Wan - whichever you put in the models folder. |
 
 The procedural engine is **not a neural model and never pretends to be one**.
-It exists so the app works the moment you clone it, and so there is always a
-renderer when no weights are installed. It is deterministic: the same prompt and
+It renders abstract fields, not people or places. It exists so the app works
+the moment you clone it, and so there is always a renderer when no weights are
+installed. It is deterministic: the same prompt and
 seed always produce the same image, and prompts genuinely steer the result —
 `emerald forest` is green, `crimson sunset` is warm, `geometric city grid`
 composes as architecture, `cosmic nebula` gets stars.
@@ -277,7 +356,8 @@ Generation parameters and their limits: `prompt` (required), `negative`,
 diffusers engine. A request may also carry `palette` (hex colours sampled from a
 reference) and `reference_id` (a saved reference to start the image from).
 For clips: `kind` ("image" or "video"), `frames`, `fps`, `motion` and
-`video_format` ("auto", "mp4" or "apng").
+`video_format` ("auto", "mp4" or "apng"). For realism: `style` (a Look id) and
+`detail_pass`.
 
 Every PNG carries its own recipe as embedded metadata, so an image dragged out
 of the outputs folder still knows the prompt, seed and settings that made it.
@@ -292,6 +372,8 @@ python3 run.py serve --port 9000 --open         # pick a port, open a browser
 python3 run.py generate "a quiet harbour at dusk" -o harbour.png
 python3 run.py generate "twin moons" -n 4 --size 768x512 --steps 30 --seed 42
 python3 run.py models                           # what weights are on this machine
+python3 run.py models --catalogue               # what Forge can install
+python3 run.py models --install sdxl            # get photoreal weights
 python3 run.py connectors                       # live reference sources
 python3 run.py connectors --check --online      # do those endpoints actually answer?
 ```
@@ -330,6 +412,18 @@ The studio's badge tells you which mode you are in: *100% local* when nothing
 can leave, *generation stays local* plus a *network on* marker when connectors
 are live.
 
+## Generating people
+
+Forge leaves each model's own safety checker in place rather than switching it
+off, and tells you when a result was filtered instead of handing back a blank
+frame. Note that single-file checkpoints often ship without a checker at all.
+
+Realistic images of people carry obligations that a local tool cannot enforce
+for you: don't generate identifiable real people without their consent, and
+check the licence of the model you installed - several in the catalogue are
+non-commercial. Forge deliberately has no face-swap or identity-transfer
+feature.
+
 If you bind to a LAN address, set `--api-key` as well — the server warns you at
 startup when you do not. The studio prompts for that key and stores it in the
 browser; the event stream accepts it as a `?key=` parameter because
@@ -351,6 +445,9 @@ forge/
 │   ├── models.py                local weight discovery (no network)
 │   ├── png.py                   PNG and animated-PNG encoders
 │   ├── video.py                 MP4 via ffmpeg, animated PNG otherwise
+│   ├── catalogue.py             models Forge can install, with sizes and licences
+│   ├── installer.py             the only code that downloads anything
+│   ├── presets.py               Looks: prompt and negative vocabulary
 │   ├── engines/
 │   │   ├── base.py              engine contract
 │   │   ├── procedural.py        built-in renderer, stills and clips
@@ -372,6 +469,7 @@ forge/
     ├── test_smoke.py            end-to-end tests against a live server
     ├── test_connectors.py       connectors and the network gate
     ├── test_video.py            encoders, animation, storage migration
+    ├── test_realism.py          catalogue, installer, Looks
     └── mock_upstreams.py        recorded upstream response shapes
 ```
 
@@ -381,7 +479,7 @@ forge/
 python3 -m unittest discover -s tests
 ```
 
-107 tests, no dependencies:
+141 tests, no dependencies:
 
 - **Generation** - batching, seed reproducibility, cancellation, the gallery,
   the provider API, request validation, path-traversal protection and API-key
@@ -394,6 +492,10 @@ python3 -m unittest discover -s tests
   looping, motion response, clip reproducibility, the gallery migration from a
   pre-video database, and generating a clip end to end over the API. The MP4
   test skips itself where ffmpeg is absent.
+- **Realism** - catalogue integrity, which repository files are downloaded and
+  which are skipped, resumable installs, gated and missing repositories, that
+  installs are audited and reach only the hub, and that Looks append rather
+  than replace what you typed.
 
 The connector tests deliberately do not call the real services, so they run
 anywhere - including with no network at all. `python3 run.py connectors --check`

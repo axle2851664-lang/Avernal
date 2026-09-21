@@ -75,7 +75,15 @@ def build_parser() -> argparse.ArgumentParser:
     one.add_argument("--sampler", default="euler_a")
     _add_common(one)
 
-    listing = subparsers.add_parser("models", help="list the models found on this machine")
+    listing = subparsers.add_parser(
+        "models", help="list, or install, the models on this machine")
+    listing.add_argument("--catalogue", "--catalog", action="store_true",
+                         dest="catalogue",
+                         help="show models Forge can install for you")
+    listing.add_argument("--install", metavar="NAME",
+                         help="install a catalogue id, or any owner/repo from the hub")
+    listing.add_argument("--hf-token", dest="hf_token",
+                         help="Hugging Face token, needed for gated models")
     _add_common(listing)
 
     connectors = subparsers.add_parser(
@@ -98,7 +106,7 @@ def config_from_args(args: argparse.Namespace) -> Config:
         config.online = True
     for name in ("device", "engine", "model", "sd_config", "offload", "quiet",
                  "host", "port", "workers", "api_key", "cors",
-                 "allow_private_hosts"):
+                 "allow_private_hosts", "hf_token"):
         value = getattr(args, name, None)
         if value is not None:
             setattr(config, name, value)
@@ -202,7 +210,88 @@ def cmd_generate(args: argparse.Namespace) -> int:
     return 0
 
 
+def _print_catalogue() -> int:
+    from .catalogue import CATALOGUE
+
+    print("Models Forge can install for you:\n")
+    for entry in CATALOGUE:
+        flags = []
+        if entry.photoreal_people:
+            flags.append("photoreal people")
+        if entry.gated:
+            flags.append("gated")
+        if entry.requires:
+            flags.append(f"needs {entry.requires}")
+        print(f"  {entry.id:<13} {entry.kind:<6} ~{entry.approx_gb:.1f}GB  "
+              f"{entry.vram_gb:.0f}GB VRAM  {entry.name}")
+        print(f"                {entry.good_for}")
+        if flags:
+            print(f"                ({', '.join(flags)})")
+        if entry.notes:
+            print(f"                {entry.notes}")
+        print(f"                licence: {entry.licence}")
+        print()
+    print("Install one with:  python3 run.py models --install <id>")
+    print("Any hub repo works too:  python3 run.py models --install owner/name")
+    return 0
+
+
+def _install(args: argparse.Namespace) -> int:
+    from .installer import InstallError, install_by_name
+
+    config = config_from_args(args)
+    state = {"line": ""}
+
+    def on_event(kind: str, payload: dict) -> None:
+        if kind == "start":
+            print(f"Installing {payload['repo']} "
+                  f"({payload['files']} files) into {payload['target']}")
+            print("Downloads go through the same audited gate as everything else.\n")
+        elif kind == "file":
+            state["line"] = f"  [{payload['index']}/{payload['of']}] {payload['file']}"
+            # Padded, so a longer previous filename is fully overwritten.
+            print("\r" + state["line"].ljust(78), end="", flush=True)
+        elif kind == "progress" and payload.get("total"):
+            share = payload["done"] / payload["total"]
+            line = f"{state['line']}  {share * 100:5.1f}%"
+            print("\r" + line.ljust(78), end="", flush=True)
+        elif kind == "skip":
+            line = (f"  [{payload['index']}/{payload['of']}] {payload['file']}  "
+                    "(already here)")
+            print("\r" + line.ljust(78))
+        elif kind == "warn":
+            print(f"\n  note: {payload['message']}")
+        elif kind == "done":
+            print("\r" + " " * 78 + "\r", end="")
+            size_gb = payload["bytes"] / 1e9
+            summary = f"{payload['downloaded']} file(s) downloaded"
+            if payload["skipped"]:
+                summary += f", {payload['skipped']} already present"
+            print(f"\nDone. {summary} ({size_gb:.2f} GB).")
+            print(f"Installed at {payload['target']}")
+
+    try:
+        result = install_by_name(args.install, config, on_event=on_event)
+    except InstallError as exc:
+        print(f"\n{exc}", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        print("\nInterrupted. Re-run the same command to resume.", file=sys.stderr)
+        return 1
+
+    entry = result.get("entry")
+    print("\nStart Forge and pick it in the studio:  python3 run.py")
+    if entry and entry.get("kind") == "video" and "image-to-video" in (entry.get("notes") or ""):
+        print("This one is image-to-video: attach a reference or a still to animate.")
+    return 0
+
+
 def cmd_models(args: argparse.Namespace) -> int:
+    if getattr(args, "catalogue", False):
+        return _print_catalogue()
+    if getattr(args, "install", None):
+        return _install(args)
+
     config = config_from_args(args)
     registry = EngineRegistry(config)
     print(f"Scanning {config.models_dir} (and the Hugging Face cache) - no network access.\n")
@@ -218,6 +307,26 @@ def cmd_models(args: argparse.Namespace) -> int:
                 size_text = f"{size / 1e9:.1f} GB" if size else "-"
                 print(f"    {model['id']:<34} {model['kind']:<11} {size_text:>8}  {model['path']}")
         print()
+
+    # Two different problems, and conflating them sends people the wrong way.
+    from . import models as model_registry
+
+    on_disk = model_registry.discover(config.models_dir)
+    torch_ready = any(e.available() for e in registry.all() if e.is_neural)
+
+    if on_disk and not torch_ready:
+        print(f"{len(on_disk)} model(s) are on disk, but torch and diffusers are "
+              "not installed,\nso Forge cannot run them yet:\n")
+        print("  pip install -r requirements-local-models.txt")
+    elif not on_disk:
+        print("No trained model weights are installed, so Forge is using its "
+              "built-in\nprocedural renderer. That renders abstract fields - it "
+              "cannot draw people\nor photorealistic scenes, and no setting "
+              "will make it.\n")
+        print("To generate realistic images or video:")
+        print("  python3 run.py models --catalogue      # what is available")
+        print("  python3 run.py models --install sdxl   # photoreal stills")
+        print("  python3 run.py models --install svd    # realistic video from a still")
     return 0
 
 

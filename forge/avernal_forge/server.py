@@ -28,6 +28,7 @@ from .connectors import (
 )
 from .engines import EngineRegistry, GenerationRequest
 from .jobs import DONE, ERROR, JobQueue
+from .presets import by_id as preset_by_id, describe_for_api as describe_presets
 from .storage import Gallery, ReferenceStore
 from .video import (
     available_formats,
@@ -117,6 +118,10 @@ def build_request(payload: dict[str, Any]) -> GenerationRequest:
             + (" for video" if kind == "video" else ""),
         )
 
+    style = str(payload.get("style") or "none").strip().lower()
+    if preset_by_id(style).id != style:
+        raise ApiError(400, f"unknown style preset {style!r}")
+
     video_format = str(payload.get("video_format") or "auto").strip().lower()
     if video_format not in ("auto", "mp4", "apng"):
         raise ApiError(400, "video_format must be 'auto', 'mp4' or 'apng'")
@@ -175,6 +180,10 @@ def build_request(payload: dict[str, Any]) -> GenerationRequest:
         fps=round(_clamp(payload.get("fps"), cfg.MIN_FPS, cfg.MAX_FPS, 12), 2),
         motion=round(_clamp(payload.get("motion"), 0.0, 2.0, 1.0), 2),
         video_format=video_format,
+        style=style,
+        detail_pass=bool(payload.get("detail_pass", False)),
+        detail_strength=round(_clamp(payload.get("detail_strength"), 0.05, 0.9, 0.35), 2),
+        detail_scale=round(_clamp(payload.get("detail_scale"), 1.0, 2.0, 1.5), 2),
     )
 
 
@@ -434,6 +443,7 @@ class ForgeHandler(BaseHTTPRequestHandler):
                 "default_engine": server.registry.default().id,
                 "models": server.registry.models(),
                 "samplers": SAMPLERS,
+                "presets": describe_presets(),
                 "limits": {
                     "min_side": cfg.MIN_SIDE,
                     "max_side": cfg.MAX_SIDE,

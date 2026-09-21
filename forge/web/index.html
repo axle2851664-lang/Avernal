@@ -69,7 +69,26 @@
         <select id="model"></select>
         <p class="hint" id="model-hint"></p>
         <p class="hint hint--warn" id="model-warn" hidden></p>
+        <div class="notice" id="capability-notice" hidden>
+          <strong>This renders abstract fields, not people.</strong>
+          <p>The built-in engine has no trained weights, so it cannot draw a
+             face or a photorealistic scene. Install a model to generate those:</p>
+          <code>python3 run.py models --install sdxl</code>
+          <p class="notice__more">Then <code>--install svd</code> for realistic
+             video from a still. <code>models --catalogue</code> lists them.</p>
+        </div>
       </div>
+
+      <div class="field">
+        <span class="field__label">Look</span>
+        <select id="style-preset"></select>
+        <p class="hint" id="style-hint"></p>
+      </div>
+
+      <label class="checkline" id="detail-line">
+        <input type="checkbox" id="detail-pass">
+        Extra detail pass <span class="hint">sharpens faces, slower</span>
+      </label>
 
       <div class="field" id="output-field">
         <span class="field__label">Output</span>

@@ -54,10 +54,22 @@ class GenerationRequest:
     motion: float = 1.0
     #: "auto", "mp4" or "apng".
     video_format: str = "auto"
+    #: A realism preset id from `presets.py`. Trained models only.
+    style: str = "none"
+    #: Re-render the result at higher resolution to sharpen faces and detail.
+    detail_pass: bool = False
+    detail_strength: float = 0.35
+    detail_scale: float = 1.5
 
     @property
     def is_video(self) -> bool:
         return self.kind == "video"
+
+    def composed(self, neural: bool = True) -> tuple[str, str]:
+        """The prompt and negative to hand a pipeline, preset applied."""
+        from ..presets import compose
+
+        return compose(self.style, self.prompt, self.negative, neural=neural)
 
     def seed_for(self, index: int) -> int:
         """Seeds within a batch walk forward so a batch is reproducible."""
@@ -76,6 +88,7 @@ class GenerationRequest:
             "model": self.model,
             "palette": self.palette,
             "kind": self.kind,
+            "style": self.style,
             "frames": self.frames if self.is_video else 1,
             "fps": self.fps if self.is_video else 0,
         }

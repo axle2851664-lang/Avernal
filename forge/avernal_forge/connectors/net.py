@@ -27,6 +27,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections import deque
+from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
@@ -302,6 +303,106 @@ class NetworkGate:
         entry["ms"] = int((time.time() - started) * 1000)
         self.record(entry)
         return result
+
+    def download(
+        self,
+        url: str,
+        destination: Path,
+        *,
+        connector: str = "",
+        headers: dict[str, str] | None = None,
+        timeout: float = 60.0,
+        max_bytes: int = 32 * 1024 * 1024 * 1024,
+        resume: bool = True,
+        on_progress: Any = None,
+    ) -> int:
+        """Stream a URL to a file, applying the same rules as `request`.
+
+        Model weights are far too large to hold in memory, so this is the one
+        path that writes straight to disk. Everything else - the allowlist, the
+        redirect re-check, the audit entry - is unchanged.
+        """
+        import shutil  # noqa: PLC0415
+
+        started = time.time()
+        safe_url = redact(url)
+        entry: dict[str, Any] = {
+            "ts": started, "connector": connector or "-", "method": "GET",
+            "url": safe_url, "user_directed": True, "status": None,
+            "bytes": 0, "ms": 0, "error": "",
+        }
+        try:
+            self.check_url(url, user_directed=True)
+        except (NetworkBlocked, NetworkError) as exc:
+            entry["error"] = str(exc)
+            entry["status"] = "blocked"
+            self.record(entry)
+            raise
+
+        destination = Path(destination)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        partial = destination.with_name(destination.name + ".part")
+        have = partial.stat().st_size if (resume and partial.is_file()) else 0
+
+        merged = {"User-Agent": USER_AGENT, "Accept-Encoding": "identity"}
+        merged.update(headers or {})
+        if have:
+            merged["Range"] = f"bytes={have}-"
+
+        request = urllib.request.Request(url, method="GET", headers=merged)
+        opener = urllib.request.build_opener(
+            _GuardedRedirectHandler(
+                lambda next_url: self.check_url(next_url, user_directed=True)
+            )
+        )
+
+        try:
+            with opener.open(request, timeout=timeout) as response:
+                entry["status"] = response.status
+                # A server that ignores the Range header restarts the file.
+                append = response.status == 206 and have > 0
+                if have and not append:
+                    have = 0
+                declared = response.headers.get("Content-Length")
+                total = (int(declared) + have) if declared and declared.isdigit() else 0
+                if total and total > max_bytes:
+                    raise NetworkError(
+                        f"{safe_url} is {total} bytes, over the {max_bytes} byte cap"
+                    )
+
+                written = have
+                with open(partial, "ab" if append else "wb") as handle:
+                    while True:
+                        chunk = response.read(1024 * 256)
+                        if not chunk:
+                            break
+                        written += len(chunk)
+                        if written > max_bytes:
+                            raise NetworkError(
+                                f"{safe_url} exceeded the {max_bytes} byte cap"
+                            )
+                        handle.write(chunk)
+                        if callable(on_progress):
+                            on_progress(written, total)
+                entry["bytes"] = written
+        except urllib.error.HTTPError as exc:
+            entry["status"] = exc.code
+            entry["error"] = f"HTTP {exc.code}"
+            self.record(entry)
+            raise NetworkError(f"{safe_url} returned HTTP {exc.code}") from exc
+        except (NetworkBlocked, NetworkError) as exc:
+            entry["error"] = str(exc)
+            self.record(entry)
+            raise
+        except Exception as exc:
+            entry["error"] = f"{type(exc).__name__}: {exc}"
+            self.record(entry)
+            raise NetworkError(f"download of {safe_url} failed: {exc}") from exc
+
+        entry["ms"] = int((time.time() - started) * 1000)
+        self.record(entry)
+        shutil.move(str(partial), str(destination))
+        return entry["bytes"]
 
     def json(self, url: str, **kwargs: Any) -> Any:
         headers = dict(kwargs.pop("headers", None) or {})

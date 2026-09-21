@@ -187,11 +187,12 @@ class DiffusersVideoEngine(DiffusersEngine):
                     ctx.check_cancel()
                     return kwargs.get("callback_kwargs", {}) or {}
 
+                prompt, negative = request.composed(neural=True)
                 call: dict[str, Any] = {"generator": generator}
                 if wants_prompt:
-                    call["prompt"] = request.prompt
-                    if request.negative and "negative_prompt" in params:
-                        call["negative_prompt"] = request.negative
+                    call["prompt"] = prompt
+                    if negative and "negative_prompt" in params:
+                        call["negative_prompt"] = negative
                 if wants_image and init is not None:
                     call["image"] = init
                 if "num_inference_steps" in params:
@@ -232,8 +233,8 @@ class DiffusersVideoEngine(DiffusersEngine):
                     "Software": "Avernal Forge",
                     "Engine": self.id,
                     "Model": model["name"],
-                    "Prompt": request.prompt,
-                    "Negative": request.negative,
+                    "Prompt": prompt,
+                    "Negative": negative,
                     "Seed": str(seed),
                     "Steps": str(request.steps),
                     "Guidance": str(request.guidance),
@@ -255,6 +256,8 @@ class DiffusersVideoEngine(DiffusersEngine):
                         "video_format": fmt,
                         "motion": request.motion,
                         "mode": "image-to-video" if init is not None else "text-to-video",
+                        "style": request.style,
+                        "final_prompt": prompt,
                         "note": notes[0] if notes else "",
                         "render_ms": int((time.time() - started) * 1000),
                     },
