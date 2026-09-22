@@ -232,6 +232,7 @@ image format the page can display.
 | **Mastodon** | an instance host | Public hashtag timelines, their images and their clips |
 | **Bluesky** | handle + app password | Public post search and images |
 | **Real estate** | MLS/Bridge endpoint + token | Live listings and photos over the RESO Web API |
+| **Custom API** | a URL, and a key if it needs one | Your own service - an asset library, an in-house search, anything returning JSON |
 
 ### Gmail
 
@@ -292,6 +293,34 @@ pretend otherwise:
 
 For any of these, the honest paths are the same two: use the official API with
 your own approved credentials, or paste a URL you have the rights to use.
+
+### Connecting your own service
+
+The **Custom API** connector points Forge at a JSON API it has never heard of.
+Give it a base URL and a search path, using `{query}` and `{limit}` as
+placeholders:
+
+```
+Base URL      https://helix.example.com
+Search path   /api/search?q={query}&limit={limit}
+Auth header   X-Api-Key: your-key      (name and value are separate fields)
+```
+
+Leave the field mappings blank to begin with. Forge looks for the usual names
+- `title`, `name`, `image_url`, `thumbnail`, `permalink`, `description` and
+friends - and finds the result list wherever it sits, including nested under
+keys it has never seen. Only when a response is genuinely unusual do you need
+to say where things live:
+
+```
+Path to results   payload.records
+Title field       heading
+Image URL field   media.large
+```
+
+Dotted paths work, including numeric indices. Only the host in your base URL
+becomes reachable, and the auth header value is treated as a secret like any
+other key.
 
 ### How the network gate works
 
@@ -495,6 +524,7 @@ forge/
 │       ├── pinterest.py         official v5 API, your own pins
 │       ├── social.py            Mastodon and Bluesky
 │       ├── gmail.py             read-only attachments from your own mailbox
+│       ├── custom.py            point Forge at your own JSON API
 │       ├── oauth.py             the loopback sign-in flow
 │       └── reso.py              licensed MLS listings
 ├── web/                         the studio UI (no build step, no CDN)
@@ -506,6 +536,7 @@ forge/
     ├── test_cli.py              every command, as a real subprocess
     ├── test_engines_offline.py  diffusers engines against fake torch
     ├── test_gmail.py            Gmail connector and the OAuth round trip
+    ├── test_custom_api.py       the configurable connector, tidy and awkward
     ├── fake_torch.py            thin stand-ins for torch/diffusers/PIL
     ├── browser_regression.js    the studio driven in a real browser
     └── mock_upstreams.py        recorded upstream response shapes
@@ -517,7 +548,7 @@ forge/
 python3 -m unittest discover -s tests
 ```
 
-202 tests, no dependencies:
+217 tests, no dependencies:
 
 - **Generation** - batching, seed reproducibility, cancellation, the gallery,
   the provider API, request validation, path-traversal protection and API-key
@@ -545,6 +576,9 @@ python3 -m unittest discover -s tests
   skipped and message bodies never kept, base64url decoding, token caching,
   and a full OAuth round trip including a mismatched-state redirect being
   refused.
+- **Custom API** - an ordinary response read with no configuration at all, an
+  awkward one mapped by hand, result lists found under unfamiliar keys, and
+  "no results" told apart from "could not find the results".
 
 The connector and installer tests deliberately do not call the real services,
 so they run anywhere - including with no network at all.

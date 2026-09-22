@@ -10,6 +10,7 @@ import time
 from typing import Any
 
 from .base import Connector, CredentialField, Reference
+from .custom import CustomApiConnector
 from .gmail import GmailConnector
 from .net import (
     VIDEO_MAX_BYTES,
@@ -60,6 +61,7 @@ class ConnectorHub:
             MastodonConnector(config),
             BlueskyConnector(config),
             ResoConnector(config),
+            CustomApiConnector(config),
         ]
         self.refresh()
 

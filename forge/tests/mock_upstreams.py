@@ -194,6 +194,20 @@ GMAIL_EMPTY_MESSAGE = {
 }
 GMAIL_PROFILE = {"emailAddress": "you@example.org", "messagesTotal": 12}
 
+#: An in-house API with an unremarkable shape, and one with an awkward shape,
+#: for the configurable connector.
+CUSTOM_PLAIN = {"results": [
+    {"id": "a1", "title": "Ridge at dawn", "description": "shot on location",
+     "image_url": "https://cdn.example.org/a1.jpg",
+     "permalink": "https://helix.example.org/a/a1", "author": "Sam"},
+    {"id": "a2", "title": "Ridge at dusk",
+     "image_url": "https://cdn.example.org/a2.mp4"},
+]}
+CUSTOM_AWKWARD = {"payload": {"records": [
+    {"uuid": "z9", "heading": "Odd shape",
+     "media": {"large": "https://cdn.example.org/z9.jpg"}},
+]}}
+
 ROBOTS_OPEN = b"User-agent: *\nAllow: /\n"
 ROBOTS_CLOSED = b"User-agent: *\nDisallow: /private\nDisallow: /listing\n"
 
@@ -245,6 +259,16 @@ class _Handler(BaseHTTPRequestHandler):
 
         if path == "/robots.txt":
             return self._send(ROBOTS_OPEN, content_type="text/plain")
+
+        # --- an in-house API, for the configurable connector ---
+        if path == "/helix/search":
+            if self.headers.get("X-Helix-Key") != "secret-key":
+                return self._send({"error": "unauthorised"}, 401)
+            return self._send(CUSTOM_PLAIN)
+        if path == "/helix/awkward":
+            return self._send(CUSTOM_AWKWARD)
+        if path == "/helix/not-a-list":
+            return self._send({"status": "ok", "count": 0})
 
         # --- Gmail shapes ---
         if path.startswith("/gmail/v1/users/me/"):
