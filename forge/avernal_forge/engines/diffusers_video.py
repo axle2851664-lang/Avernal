@@ -96,10 +96,37 @@ class DiffusersVideoEngine(DiffusersEngine):
     # -------------------------------------------------------- conversion
 
     @staticmethod
-    def _frames_to_rgb(frames: Any) -> tuple[list[bytes], int, int]:
-        """Normalise whatever the pipeline returned into raw RGB frames."""
-        from PIL import Image  # noqa: PLC0415
+    def _to_image(frame: Any) -> Any:
+        """Accept whatever a pipeline returned and give back an image.
 
+        Frames usually arrive as PIL images already, in which case Pillow is
+        not needed at all - only array output requires it, so the import stays
+        on that branch.
+        """
+        if hasattr(frame, "convert") and hasattr(frame, "tobytes"):
+            return frame
+
+        try:
+            from PIL import Image  # noqa: PLC0415
+        except ImportError as exc:  # pragma: no cover - diffusers ships Pillow
+            raise RuntimeError(
+                "This pipeline returned raw arrays, which need Pillow to "
+                "convert. Install Pillow, or `pip install -r "
+                "requirements-local-models.txt`."
+            ) from exc
+
+        array = frame
+        if hasattr(array, "detach"):                 # a torch tensor
+            array = array.detach().cpu().numpy()
+        if hasattr(array, "dtype") and array.dtype.kind == "f":
+            array = (array.clip(0, 1) * 255).astype("uint8")
+        if hasattr(array, "shape") and len(array.shape) == 3 and array.shape[0] in (1, 3):
+            array = array.transpose(1, 2, 0)          # CHW -> HWC
+        return Image.fromarray(array)
+
+    @classmethod
+    def _frames_to_rgb(cls, frames: Any) -> tuple[list[bytes], int, int]:
+        """Normalise whatever the pipeline returned into raw RGB frames."""
         sequence = frames
         # Video pipelines return a batch: frames[0] is this clip's frame list.
         if isinstance(sequence, (list, tuple)) and sequence and isinstance(
@@ -112,21 +139,12 @@ class DiffusersVideoEngine(DiffusersEngine):
         out: list[bytes] = []
         size: tuple[int, int] | None = None
         for frame in sequence:
-            if not isinstance(frame, Image.Image):
-                array = frame
-                if hasattr(array, "detach"):            # a torch tensor
-                    array = array.detach().cpu().numpy()
-                if hasattr(array, "dtype") and array.dtype.kind == "f":
-                    array = (array.clip(0, 1) * 255).astype("uint8")
-                if hasattr(array, "shape") and len(array.shape) == 3 and array.shape[0] in (1, 3):
-                    array = array.transpose(1, 2, 0)    # CHW -> HWC
-                frame = Image.fromarray(array)
-            frame = frame.convert("RGB")
+            image = cls._to_image(frame).convert("RGB")
             if size is None:
-                size = frame.size
-            elif frame.size != size:
-                frame = frame.resize(size)
-            out.append(frame.tobytes())
+                size = (image.width, image.height)
+            elif (image.width, image.height) != size:
+                image = image.resize(size)
+            out.append(image.tobytes())
         if not out or size is None:
             raise RuntimeError("the pipeline returned no frames")
         return out, size[0], size[1]

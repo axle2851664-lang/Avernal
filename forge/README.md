@@ -470,6 +470,10 @@ forge/
     ├── test_connectors.py       connectors and the network gate
     ├── test_video.py            encoders, animation, storage migration
     ├── test_realism.py          catalogue, installer, Looks
+    ├── test_cli.py              every command, as a real subprocess
+    ├── test_engines_offline.py  diffusers engines against fake torch
+    ├── fake_torch.py            thin stand-ins for torch/diffusers/PIL
+    ├── browser_regression.js    the studio driven in a real browser
     └── mock_upstreams.py        recorded upstream response shapes
 ```
 
@@ -479,7 +483,7 @@ forge/
 python3 -m unittest discover -s tests
 ```
 
-141 tests, no dependencies:
+177 tests, no dependencies:
 
 - **Generation** - batching, seed reproducibility, cancellation, the gallery,
   the provider API, request validation, path-traversal protection and API-key
@@ -497,6 +501,22 @@ python3 -m unittest discover -s tests
   installs are audited and reach only the hub, and that Looks append rather
   than replace what you typed.
 
-The connector tests deliberately do not call the real services, so they run
-anywhere - including with no network at all. `python3 run.py connectors --check`
-is what verifies the live endpoints.
+- **CLI** - every subcommand run as a real subprocess. These exist because a
+  rename broke `run.py generate` and nothing caught it: every other surface
+  had tests, the command line did not.
+- **Engines** - the Stable Diffusion and video pipelines driven against a fake
+  torch and diffusers, so the code paths a machine without a GPU cannot
+  otherwise reach are still exercised. That proves the wiring, not the imagery.
+
+The connector and installer tests deliberately do not call the real services,
+so they run anywhere - including with no network at all.
+`python3 run.py connectors --check` verifies the live endpoints, and
+`models --install` against the real hub verifies the repository ids.
+
+There is also a browser pass covering what unit tests cannot - that the page
+works when a person uses it:
+
+```bash
+python3 run.py serve --port 8794 &
+node tests/browser_regression.js
+```

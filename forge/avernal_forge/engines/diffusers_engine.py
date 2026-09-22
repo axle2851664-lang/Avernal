@@ -19,7 +19,7 @@ from typing import Any, Iterator
 
 from .. import models as model_registry
 from ..png import encode_png
-from .base import Cancelled, Engine, GeneratedImage, GenerationRequest, JobContext
+from .base import Cancelled, Engine, GeneratedMedia, GenerationRequest, JobContext
 
 SCHEDULER_MAP: dict[str, tuple[str, dict[str, Any]]] = {
     "euler_a": ("EulerAncestralDiscreteScheduler", {}),
@@ -31,6 +31,22 @@ SCHEDULER_MAP: dict[str, tuple[str, dict[str, Any]]] = {
     "lms": ("LMSDiscreteScheduler", {}),
     "heun": ("HeunDiscreteScheduler", {}),
 }
+
+
+
+def _lanczos() -> Any:
+    """Pillow's LANCZOS constant, wherever this version keeps it.
+
+    Newer Pillow moved the resampling constants onto `Image.Resampling`. This
+    is only a quality preference, so a version that has neither simply gets
+    the default filter rather than an error.
+    """
+    try:
+        from PIL import Image  # noqa: PLC0415
+    except ImportError:
+        return None
+    resampling = getattr(Image, "Resampling", None)
+    return getattr(resampling, "LANCZOS", None) or getattr(Image, "LANCZOS", None)
 
 
 class DiffusersEngine(Engine):
@@ -252,15 +268,13 @@ class DiffusersEngine(Engine):
         if refiner is None:
             return image, "detail pass unavailable in this diffusers version"
 
-        from PIL import Image  # noqa: PLC0415
-
         scale = max(1.0, min(2.0, request.detail_scale))
         target = (int(image.width * scale) // 8 * 8, int(image.height * scale) // 8 * 8)
         if target[0] <= image.width and target[1] <= image.height:
             return image, ""
 
         ctx.progress(request.steps, request.steps, "detail pass")
-        enlarged = image.resize(target, Image.LANCZOS)
+        enlarged = image.resize(target, _lanczos()) if _lanczos() else image.resize(target)
         try:
             result = refiner(
                 prompt=prompt,
@@ -288,7 +302,7 @@ class DiffusersEngine(Engine):
 
     def generate(
         self, request: GenerationRequest, ctx: JobContext
-    ) -> Iterator[GeneratedImage]:
+    ) -> Iterator[GeneratedMedia]:
         if not self.available():
             raise RuntimeError(self.unavailable_reason())
 
@@ -386,11 +400,14 @@ class DiffusersEngine(Engine):
                     "Guidance": str(request.guidance),
                     "Sampler": sampler,
                 }
-                yield GeneratedImage(
-                    png=self._to_png(image, text),
+                yield GeneratedMedia(
+                    data=self._to_png(image, text),
                     seed=seed,
                     width=image.width,
                     height=image.height,
+                    kind="image",
+                    mime="image/png",
+                    ext=".png",
                     meta={
                         "model": model["name"],
                         "model_path": model["path"],

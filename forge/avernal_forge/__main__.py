@@ -73,6 +73,17 @@ def build_parser() -> argparse.ArgumentParser:
     one.add_argument("--guidance", type=float, default=7.0)
     one.add_argument("--seed", type=int, default=-1)
     one.add_argument("--sampler", default="euler_a")
+    one.add_argument("--video", action="store_true", help="render a clip, not a still")
+    one.add_argument("--frames", type=int, default=24, help="clip length in frames")
+    one.add_argument("--fps", type=float, default=12.0)
+    one.add_argument("--motion", type=float, default=1.0,
+                     help="how much the clip moves, 0-2")
+    one.add_argument("--video-format", dest="video_format", default="auto",
+                     choices=["auto", "mp4", "apng"])
+    one.add_argument("--style", default="none",
+                     help="a Look preset id, e.g. portrait (trained models only)")
+    one.add_argument("--detail", action="store_true", dest="detail_pass",
+                     help="extra detail pass; sharpens faces, slower")
     _add_common(one)
 
     listing = subparsers.add_parser(
@@ -163,7 +174,8 @@ def cmd_generate(args: argparse.Namespace) -> int:
 
     config = config_from_args(args)
     registry = EngineRegistry(config)
-    engine = registry.resolve(config.engine)
+    want_video = bool(getattr(args, "video", False))
+    engine = registry.resolve(config.engine, want_video=want_video)
     request = build_request(
         {
             "prompt": args.prompt,
@@ -175,6 +187,13 @@ def cmd_generate(args: argparse.Namespace) -> int:
             "batch": args.batch,
             "sampler": args.sampler,
             "model": config.model,
+            "kind": "video" if want_video else "image",
+            "frames": args.frames,
+            "fps": args.fps,
+            "motion": args.motion,
+            "video_format": args.video_format,
+            "style": args.style,
+            "detail_pass": args.detail_pass,
         }
     )
 
@@ -191,20 +210,26 @@ def cmd_generate(args: argparse.Namespace) -> int:
 
     started = time.time()
     written: list[Path] = []
-    for index, image in enumerate(engine.generate(request, TerminalContext())):
+    for index, media in enumerate(engine.generate(request, TerminalContext())):
         if args.out and args.batch == 1:
             target = args.out
         elif args.out:
             target = args.out.with_name(f"{args.out.stem}-{index + 1}{args.out.suffix}")
         else:
-            target = config.outputs_dir / f"forge-{int(time.time())}-{image.seed}.png"
+            # The extension follows the media: a clip is .mp4 or .png (APNG).
+            target = (config.outputs_dir /
+                      f"forge-{int(time.time())}-{media.seed}{media.ext}")
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(image.png)
+        target.write_bytes(media.data)
         written.append(target)
+        if media.meta.get("note") and not args.quiet:
+            print(f"\r  note: {media.meta['note']}".ljust(60))
 
     if not args.quiet:
-        print(f"\r  rendered {len(written)} image(s) in {time.time() - started:.1f}s"
-              + " " * 20)
+        noun = "clip" if want_video else "image"
+        plural = "" if len(written) == 1 else "s"
+        print(f"\r  rendered {len(written)} {noun}{plural} in "
+              f"{time.time() - started:.1f}s".ljust(60))
     for path in written:
         print(path)
     return 0
@@ -292,37 +317,49 @@ def cmd_models(args: argparse.Namespace) -> int:
     if getattr(args, "install", None):
         return _install(args)
 
-    config = config_from_args(args)
-    registry = EngineRegistry(config)
-    print(f"Scanning {config.models_dir} (and the Hugging Face cache) - no network access.\n")
-    for engine in registry.all():
-        state = "ready" if engine.available() else f"unavailable: {engine.unavailable_reason()}"
-        print(f"{engine.label}  [{state}]")
-        if engine.available():
-            found = engine.models()
-            if not found:
-                print("    (no weights found)")
-            for model in found:
-                size = model.get("size_bytes") or 0
-                size_text = f"{size / 1e9:.1f} GB" if size else "-"
-                print(f"    {model['id']:<34} {model['kind']:<11} {size_text:>8}  {model['path']}")
-        print()
-
-    # Two different problems, and conflating them sends people the wrong way.
     from . import models as model_registry
 
-    on_disk = model_registry.discover(config.models_dir)
-    torch_ready = any(e.available() for e in registry.all() if e.is_neural)
+    config = config_from_args(args)
+    registry = EngineRegistry(config)
+    print(f"Scanning {config.models_dir} (and the Hugging Face cache) "
+          "- no network access.\n")
 
+    # Weights on disk are listed whether or not an engine can currently run
+    # them: installing a model and then not seeing it named is baffling.
+    on_disk = model_registry.discover(config.models_dir)
+    if on_disk:
+        print("Weights on this machine:")
+        for model in on_disk:
+            size = model.get("size_bytes") or 0
+            size_text = f"{size / 1e9:.1f} GB" if size else "-"
+            print(f"  {model['id']:<30} {model.get('media', 'image'):<6} "
+                  f"{model['kind']:<11} {size_text:>8}  {model['path']}")
+        print()
+    else:
+        print("No model weights on this machine.\n")
+
+    print("Engines:")
+    for engine in registry.all():
+        if engine.available():
+            state = "ready"
+        else:
+            state = f"unavailable - {engine.unavailable_reason()}"
+        print(f"  {engine.label}")
+        print(f"      {state}")
+        if engine.available() and engine.models():
+            usable = ", ".join(m["id"] for m in engine.models())
+            print(f"      can use: {usable}")
+    print()
+
+    torch_ready = any(e.available() for e in registry.all() if e.is_neural)
     if on_disk and not torch_ready:
-        print(f"{len(on_disk)} model(s) are on disk, but torch and diffusers are "
-              "not installed,\nso Forge cannot run them yet:\n")
+        print("Those weights cannot run yet: torch and diffusers are not "
+              "installed.\n")
         print("  pip install -r requirements-local-models.txt")
     elif not on_disk:
-        print("No trained model weights are installed, so Forge is using its "
-              "built-in\nprocedural renderer. That renders abstract fields - it "
-              "cannot draw people\nor photorealistic scenes, and no setting "
-              "will make it.\n")
+        print("Forge is using its built-in procedural renderer. That renders "
+              "abstract\nfields - it cannot draw people or photorealistic "
+              "scenes, and no setting\nwill make it.\n")
         print("To generate realistic images or video:")
         print("  python3 run.py models --catalogue      # what is available")
         print("  python3 run.py models --install sdxl   # photoreal stills")
