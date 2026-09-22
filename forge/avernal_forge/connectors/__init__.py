@@ -10,6 +10,7 @@ import time
 from typing import Any
 
 from .base import Connector, CredentialField, Reference
+from .gmail import GmailConnector
 from .net import (
     VIDEO_MAX_BYTES,
     NetworkBlocked,
@@ -53,6 +54,7 @@ class ConnectorHub:
             CommonsConnector(config),
             OpenverseConnector(config),
             WebPageConnector(config),
+            GmailConnector(config),
             RedditConnector(config),
             PinterestConnector(config),
             MastodonConnector(config),
@@ -164,6 +166,14 @@ class ConnectorHub:
 
     def fetch_media(self, reference: Reference) -> tuple[bytes, str]:
         """Download a reference's file, preferring a host we already allow."""
+        connector = self.get(reference.source)
+        if connector is not None:
+            supplied = connector.download(
+                reference, self.gate, self.store.credentials(connector.id)
+            )
+            if supplied is not None:
+                return supplied
+
         candidates = [
             reference.extra.get("download_url", ""),
             reference.image_url,

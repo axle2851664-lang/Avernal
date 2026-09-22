@@ -102,6 +102,12 @@ def build_parser() -> argparse.ArgumentParser:
     connectors.add_argument("--check", action="store_true",
                             help="make one real request per connector and report")
     connectors.add_argument("--only", help="check a single connector by id")
+    connectors.add_argument("--login", metavar="ID",
+                            help="sign in to a connector that needs an account, "
+                                 "such as gmail")
+    connectors.add_argument("--no-browser", action="store_true",
+                            dest="no_browser",
+                            help="print the consent URL instead of opening it")
     _add_common(connectors)
     return parser
 
@@ -367,7 +373,92 @@ def cmd_models(args: argparse.Namespace) -> int:
     return 0
 
 
+def _login(args: argparse.Namespace) -> int:
+    """Run a connector's OAuth flow and store only the refresh token."""
+    import getpass
+
+    from .connectors import ConnectorHub, ConnectorStore
+    from .connectors.net import NetworkGate
+    from .connectors.oauth import OAuthError, authorise
+
+    config = config_from_args(args)
+    store = ConnectorStore(config.connectors_path)
+    hub = ConnectorHub(config, store)
+
+    connector = hub.get(args.login)
+    if connector is None:
+        print(f"Unknown connector {args.login!r}.", file=sys.stderr)
+        return 1
+    if not hasattr(connector, "endpoints"):
+        print(f"{connector.label} does not sign in; set its keys in the studio "
+              "instead.", file=sys.stderr)
+        return 1
+
+    print(f"Signing in to {connector.label}.\n")
+    print("You need an OAuth client of type 'Desktop app' from")
+    print(f"  {connector.docs_url}")
+    print("with the Gmail API enabled on that project.\n")
+
+    credentials = store.credentials(connector.id)
+    client_id = credentials.get("client_id") or input("  Client ID: ").strip()
+    client_secret = (credentials.get("client_secret")
+                     or getpass.getpass("  Client secret (hidden): ").strip())
+    if not client_id or not client_secret:
+        print("\nBoth a client id and secret are needed.", file=sys.stderr)
+        return 1
+
+    # A gate opened only for this connector, only for this command.
+    class _LoginConfig:
+        online = True
+        allow_private_hosts = bool(getattr(config, "allow_private_hosts", False))
+
+    gate = NetworkGate(_LoginConfig())
+    gate.set_allowed_domains(set(connector.domains))
+
+    def on_event(kind: str, payload: dict) -> None:
+        if kind == "consent":
+            print("\nOpening your browser to approve read-only access.")
+            print("If it does not open, visit this URL yourself:\n")
+            print(f"  {payload['url']}\n")
+            print("Waiting for the redirect...")
+        elif kind == "exchange":
+            print("Approved. Exchanging the code for a token...")
+
+    try:
+        tokens = authorise(
+            connector.endpoints(), client_id, client_secret, gate,
+            connector=connector.id,
+            open_browser=not getattr(args, "no_browser", False),
+            on_event=on_event,
+        )
+    except OAuthError as exc:
+        print(f"\n{exc}", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        print("\nCancelled. Nothing was saved.", file=sys.stderr)
+        return 1
+
+    # Only the refresh token is kept; access tokens are fetched as needed.
+    hub.set_credentials(connector.id, {
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "refresh_token": tokens["refresh_token"],
+    })
+    enabled = set(hub.enabled_ids)
+    enabled.add(connector.id)
+    hub.set_enabled(sorted(enabled))
+
+    print(f"\nSigned in. Credentials saved to {config.connectors_path} (0600).")
+    print(f"{connector.label} is switched on.\n")
+    print("Turn live connectors on in the studio, or start with --online, then")
+    print("search it from the Live references tab.")
+    return 0
+
+
 def cmd_connectors(args: argparse.Namespace) -> int:
+    if getattr(args, "login", None):
+        return _login(args)
+
     from .connectors import ConnectorHub, ConnectorStore
 
     config = config_from_args(args)

@@ -31,8 +31,8 @@ from avernal_forge.connectors import (  # noqa: E402
 )
 from avernal_forge.connectors.net import redact  # noqa: E402
 
-ALL_CONNECTORS = ["wikipedia", "commons", "openverse", "webpage", "reddit",
-                  "pinterest", "mastodon", "bluesky", "reso"]
+ALL_CONNECTORS = ["wikipedia", "commons", "openverse", "webpage", "gmail",
+                  "reddit", "pinterest", "mastodon", "bluesky", "reso"]
 
 
 class ConnectorTestCase(unittest.TestCase):
@@ -356,7 +356,14 @@ class TestConnectorApi(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(body["online"])
         self.assertNotIn("shh", json.dumps(body))
-        self.assertEqual(len(body["connectors"]), len(ALL_CONNECTORS))
+        # Derived from the registry rather than a literal count, so adding a
+        # connector does not break an unrelated assertion.
+        from avernal_forge.connectors import ConnectorHub, ConnectorStore
+
+        known = ConnectorHub(Config(home=self.home),
+                             ConnectorStore(self.home / "count.json")).connectors
+        self.assertEqual(
+            {c["id"] for c in body["connectors"]}, {c.id for c in known})
 
     def test_search_then_save_then_delete_a_reference(self):
         _, found = self.api("/api/references/search?connector=wikipedia&q=eiffel")

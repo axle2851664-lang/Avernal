@@ -226,11 +226,41 @@ image format the page can display.
 | **Wikimedia Commons** | nothing | Freely licensed photography, with attribution |
 | **Openverse** | nothing (token optional) | Several hundred million openly licensed images |
 | **Web page** | nothing | Paste any URL; title, description, preview image or `og:video` clip |
+| **Gmail** | your own OAuth client, read-only | Image and video attachments from your own mailbox |
 | **Reddit** | your own app id + secret | Public post search, images and hosted video, via the official OAuth API |
 | **Pinterest** | your own access token | Your own pins and boards |
 | **Mastodon** | an instance host | Public hashtag timelines, their images and their clips |
 | **Bluesky** | handle + app password | Public post search and images |
 | **Real estate** | MLS/Bridge endpoint + token | Live listings and photos over the RESO Web API |
+
+### Gmail
+
+Gmail is the most privacy-significant connector here, so it is the narrowest:
+
+- the scope requested is `gmail.readonly` - Forge cannot send, delete or alter
+  anything, and asks for nothing that could;
+- searches are constrained to messages with attachments;
+- only a matching message's filename, subject, sender and date become a
+  reference - **message bodies are never read into one or stored**;
+- an attachment is downloaded only when you attach that reference;
+- only the refresh token is saved. Access tokens are short-lived, fetched as
+  needed, held in memory and never written to disk.
+
+Signing in happens at the terminal rather than in the studio, because OAuth
+needs a browser and a local port:
+
+```bash
+python3 run.py connectors --login gmail
+```
+
+You need an OAuth client of type **Desktop app** from the
+[Google Cloud console](https://console.cloud.google.com/apis/credentials),
+with the Gmail API enabled on that project. The command opens the consent
+screen, catches the redirect on a loopback port, and stores the refresh token.
+`--no-browser` prints the URL instead of opening it.
+
+Revoke access any time from your Google account's security settings; Forge
+will then say the token was revoked and ask you to sign in again.
 
 Keys are stored in `~/.avernal-forge/connectors.json` with `0600` permissions,
 or supplied as `AVERNAL_FORGE_<CONNECTOR>_<FIELD>` environment variables if you
@@ -375,6 +405,7 @@ python3 run.py models                           # what weights are on this machi
 python3 run.py models --catalogue               # what Forge can install
 python3 run.py models --install sdxl            # get photoreal weights
 python3 run.py connectors                       # live reference sources
+python3 run.py connectors --login gmail         # sign in to a connector
 python3 run.py connectors --check --online      # do those endpoints actually answer?
 ```
 
@@ -463,6 +494,8 @@ forge/
 │       ├── reddit.py            official OAuth API
 │       ├── pinterest.py         official v5 API, your own pins
 │       ├── social.py            Mastodon and Bluesky
+│       ├── gmail.py             read-only attachments from your own mailbox
+│       ├── oauth.py             the loopback sign-in flow
 │       └── reso.py              licensed MLS listings
 ├── web/                         the studio UI (no build step, no CDN)
 └── tests/
@@ -472,6 +505,7 @@ forge/
     ├── test_realism.py          catalogue, installer, Looks
     ├── test_cli.py              every command, as a real subprocess
     ├── test_engines_offline.py  diffusers engines against fake torch
+    ├── test_gmail.py            Gmail connector and the OAuth round trip
     ├── fake_torch.py            thin stand-ins for torch/diffusers/PIL
     ├── browser_regression.js    the studio driven in a real browser
     └── mock_upstreams.py        recorded upstream response shapes
@@ -483,7 +517,7 @@ forge/
 python3 -m unittest discover -s tests
 ```
 
-177 tests, no dependencies:
+202 tests, no dependencies:
 
 - **Generation** - batching, seed reproducibility, cancellation, the gallery,
   the provider API, request validation, path-traversal protection and API-key
@@ -507,6 +541,10 @@ python3 -m unittest discover -s tests
 - **Engines** - the Stable Diffusion and video pipelines driven against a fake
   torch and diffusers, so the code paths a machine without a GPU cannot
   otherwise reach are still exercised. That proves the wiring, not the imagery.
+- **Gmail** - attachment discovery through nested MIME trees, that PDFs are
+  skipped and message bodies never kept, base64url decoding, token caching,
+  and a full OAuth round trip including a mismatched-state redirect being
+  refused.
 
 The connector and installer tests deliberately do not call the real services,
 so they run anywhere - including with no network at all.

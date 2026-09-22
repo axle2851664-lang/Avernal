@@ -163,6 +163,37 @@ HF_REPO_FILES = [
     "README.md",                                  # not a pipeline file
 ]
 
+#: A Gmail message with a nested MIME tree, so attachment walking is exercised.
+GMAIL_MESSAGES = {"messages": [{"id": "msg1"}, {"id": "msg2"}]}
+GMAIL_MESSAGE = {
+    "id": "msg1",
+    "payload": {
+        "headers": [
+            {"name": "Subject", "value": "Site photos from Tuesday"},
+            {"name": "From", "value": "Sam Rowan <sam@example.org>"},
+        ],
+        "mimeType": "multipart/mixed",
+        "parts": [
+            {"mimeType": "text/plain", "filename": "",
+             "body": {"data": "aGVsbG8"}},
+            {"mimeType": "multipart/related", "filename": "", "parts": [
+                {"mimeType": "image/jpeg", "filename": "barn.jpg",
+                 "body": {"attachmentId": "att1", "size": 4096}},
+            ]},
+            {"mimeType": "application/pdf", "filename": "invoice.pdf",
+             "body": {"attachmentId": "att2", "size": 900}},
+            {"mimeType": "video/mp4", "filename": "walkthrough.mp4",
+             "body": {"attachmentId": "att3", "size": 20480}},
+        ],
+    },
+}
+GMAIL_EMPTY_MESSAGE = {
+    "id": "msg2",
+    "payload": {"headers": [{"name": "Subject", "value": "No pictures here"}],
+                "mimeType": "text/plain", "body": {}},
+}
+GMAIL_PROFILE = {"emailAddress": "you@example.org", "messagesTotal": 12}
+
 ROBOTS_OPEN = b"User-agent: *\nAllow: /\n"
 ROBOTS_CLOSED = b"User-agent: *\nDisallow: /private\nDisallow: /listing\n"
 
@@ -184,11 +215,25 @@ class _Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         path = urllib.parse.urlparse(self.path).path
         length = int(self.headers.get("Content-Length") or 0)
-        self.rfile.read(length)
+        self.server.last_body = self.rfile.read(length)
         self.server.seen.append(("POST", self.path, dict(self.headers)))
 
         if path.endswith("/api/v1/access_token"):
             return self._send(REDDIT_TOKEN)
+        if path.endswith("/token"):
+            # Google-style token endpoint: an auth code yields a refresh token,
+            # a refresh token yields a short-lived access token.
+            body = self.server.last_body.decode("utf-8", "replace")
+            if "grant_type=authorization_code" in body:
+                if "code=good-code" not in body:
+                    return self._send({"error": "invalid_grant"}, 400)
+                return self._send({"access_token": "access-1", "expires_in": 3600,
+                                   "refresh_token": "refresh-1"})
+            if "grant_type=refresh_token" in body:
+                if "refresh_token=bad" in body:
+                    return self._send({"error": "invalid_grant"}, 400)
+                return self._send({"access_token": "access-2", "expires_in": 3600})
+            return self._send({"error": "unsupported_grant_type"}, 400)
         if path.endswith("/xrpc/com.atproto.server.createSession"):
             return self._send(BLUESKY_SESSION)
         return self._send({"error": "not found"}, 404)
@@ -200,6 +245,28 @@ class _Handler(BaseHTTPRequestHandler):
 
         if path == "/robots.txt":
             return self._send(ROBOTS_OPEN, content_type="text/plain")
+
+        # --- Gmail shapes ---
+        if path.startswith("/gmail/v1/users/me/"):
+            if not self.headers.get("Authorization", "").startswith("Bearer "):
+                return self._send({"error": {"message": "unauthorised"}}, 401)
+            tail = path[len("/gmail/v1/users/me/"):]
+            if tail == "profile":
+                return self._send(GMAIL_PROFILE)
+            if tail == "messages":
+                return self._send(GMAIL_MESSAGES)
+            if "/attachments/" in tail:
+                import base64 as _b64
+                name = tail.rsplit("/", 1)[1]
+                blob = (f"attachment:{name}:".encode() + b"\x00" * 64)[:64]
+                # Gmail returns base64url without padding.
+                data = _b64.urlsafe_b64encode(blob).decode().rstrip("=")
+                return self._send({"size": len(blob), "data": data})
+            if tail.startswith("messages/"):
+                which = tail.split("/")[1].split("?")[0]
+                return self._send(
+                    GMAIL_MESSAGE if which == "msg1" else GMAIL_EMPTY_MESSAGE)
+            return self._send({"error": "no gmail stub"}, 404)
 
         # --- Hugging Face shapes ---
         if path.startswith("/api/models/"):
@@ -285,6 +352,7 @@ class MockUpstreams:
     def __init__(self) -> None:
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
         self.server.seen = []
+        self.server.last_body = b""
         self.port = self.server.server_address[1]
         self.base = f"http://127.0.0.1:{self.port}"
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)

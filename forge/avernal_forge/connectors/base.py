@@ -143,6 +143,20 @@ class Connector:
     ) -> list[Reference]:
         raise NotImplementedError
 
+    def download(
+        self,
+        reference: Reference,
+        gate: NetworkGate,
+        credentials: dict[str, str],
+    ) -> tuple[bytes, str] | None:
+        """Fetch a reference's bytes when there is no plain URL to GET.
+
+        Mail attachments arrive inside an API response rather than at an
+        address, so those connectors override this. Returning None means
+        "use the URL", which is what every other connector does.
+        """
+        return None
+
     def probe(self, gate: NetworkGate, credentials: dict[str, str]) -> str:
         """A cheap live call used by `run.py connectors --check`."""
         found = self.search("test", gate, credentials, limit=1)

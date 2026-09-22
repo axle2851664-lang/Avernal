@@ -716,10 +716,12 @@ class ForgeHandler(BaseHTTPRequestHandler):
         )
 
         image, content_type = b"", ""
-        if reference.image_url or reference.thumb_url:
+        # Attempted unconditionally: some connectors supply bytes rather than
+        # a URL, so an empty image_url does not mean there is nothing to get.
+        if True:
             try:
                 image, content_type = server.hub.fetch_media(reference)
-            except (NetworkBlocked, NetworkError) as exc:
+            except (NetworkBlocked, NetworkError, RuntimeError) as exc:
                 # The text of a reference is still worth keeping even when its
                 # image sits on a host we are not allowed to reach.
                 self.log_message("reference image not fetched: %s", exc)
