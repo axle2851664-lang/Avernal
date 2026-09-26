@@ -619,14 +619,22 @@
     $("stage-empty").hidden = true;
     var grid = $("stage-grid");
     grid.hidden = false;
-    grid.innerHTML = "";
-    state.stage.forEach(function (image) {
-      var node = mediaElement(image, { autoplay: true });
-      node.addEventListener("click", function () {
-        openLightbox(state.stage.indexOf(image), state.stage);
-      });
-      grid.appendChild(node);
-    });
+
+    // Append only what is new. Rebuilding the grid on every image event made
+    // every already-visible result re-run its entry animation part-way
+    // through a batch, and replaced elements the viewer was looking at.
+    if (grid.childElementCount > state.stage.length) {
+      grid.innerHTML = "";
+    }
+    for (var i = grid.childElementCount; i < state.stage.length; i++) {
+      (function (image) {
+        var node = mediaElement(image, { autoplay: true });
+        node.addEventListener("click", function () {
+          openLightbox(state.stage.indexOf(image), state.stage);
+        });
+        grid.appendChild(node);
+      })(state.stage[i]);
+    }
   }
 
   function refreshStats() {

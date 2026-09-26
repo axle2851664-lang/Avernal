@@ -148,7 +148,13 @@ a { color: inherit; }
 }
 .field__label b { color: var(--text); font-size: 13px; letter-spacing: 0; }
 
-textarea, input[type="number"], input[type="search"], select {
+/* Every text-like input, not just the two types the studio happened to use
+   first: connector credential fields are text/password and were rendering
+   with the browser's white default against the dark theme. */
+textarea, select,
+input[type="text"], input[type="password"], input[type="number"],
+input[type="search"], input[type="url"], input[type="email"],
+input:not([type]) {
   width: 100%;
   background: var(--bg);
   border: 1px solid var(--line);
@@ -750,3 +756,23 @@ input[type="range"]::-moz-range-thumb {
 
 select:disabled, input:disabled { opacity: .5; cursor: not-allowed; }
 .checkline input:disabled + span, .checkline.is-off { opacity: .5; }
+
+
+/* Most connectors need two or three fields; the custom one has optional
+   mapping overrides that only matter for unusual APIs, so they fold away. */
+.connector__advanced {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 9px 11px;
+  margin-top: 8px;
+}
+.connector__advanced summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--muted);
+  list-style: none;
+}
+.connector__advanced summary::-webkit-details-marker { display: none; }
+.connector__advanced summary::before { content: "+ "; color: var(--accent); }
+.connector__advanced[open] summary::before { content: "− "; }
+.connector__advanced .connector__fields { margin-top: 9px; }

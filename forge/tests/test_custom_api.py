@@ -161,5 +161,99 @@ class TestGuards(CustomApiTestCase):
             forge.gate.json("https://somewhere-else.example/x", connector="custom")
 
 
+
+
+class TestSetupCommands(CustomApiTestCase):
+    """`--set` and `--inspect`: the path from "I have an API" to a connector."""
+
+    def run_cli(self, *args: str):
+        import os
+        import subprocess
+        import sys as _sys
+
+        return subprocess.run(
+            [_sys.executable, "run.py", *args, "--home", str(self.home),
+             "--allow-private-hosts"],
+            cwd=ROOT, capture_output=True, text=True, timeout=120,
+            env=dict(os.environ),
+        )
+
+    def setUp(self) -> None:
+        self.forge = self.hub()          # creates self.home with nothing set
+
+    def test_set_with_no_values_lists_what_is_needed(self):
+        result = self.run_cli("connectors", "--set", "custom")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("base_url", result.stdout)
+        self.assertIn("required", result.stdout)
+
+    def test_set_configures_and_enables_the_connector(self):
+        result = self.run_cli(
+            "connectors", "--set", "custom",
+            "service_name=Helix", f"base_url={self.mock.base}",
+            "search_path=/helix/search?q={query}",
+            "auth_header_name=X-Helix-Key", "auth_header_value=secret-key")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        # Named connectors report under their own name.
+        self.assertIn("Helix", result.stdout)
+        self.assertIn("configured and switched on", result.stdout)
+
+        listing = self.run_cli("connectors")
+        self.assertIn("custom", listing.stdout)
+
+    def test_secrets_are_never_echoed_back(self):
+        result = self.run_cli(
+            "connectors", "--set", "custom", f"base_url={self.mock.base}",
+            "search_path=/helix/search", "auth_header_value=secret-key")
+        self.assertNotIn("secret-key", result.stdout)
+        self.assertIn("auth_header_value  set", result.stdout)
+
+    def test_an_unknown_field_is_refused(self):
+        result = self.run_cli("connectors", "--set", "custom", "nonsense=1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("no field", result.stderr)
+
+    def test_a_malformed_pair_is_refused(self):
+        result = self.run_cli("connectors", "--set", "custom", "just-a-word")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("key=value", result.stderr)
+
+    def test_inspect_reports_a_readable_api_needs_no_mapping(self):
+        result = self.run_cli(
+            "connectors", "--inspect", f"{self.mock.base}/helix/search",
+            "--header", "X-Helix-Key: secret-key")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Found 2 record(s)", result.stdout)
+        self.assertIn("Ridge at dawn", result.stdout)
+        self.assertIn("Nothing to map by hand", result.stdout)
+
+    def test_inspect_names_the_fields_it_could_not_find(self):
+        result = self.run_cli(
+            "connectors", "--inspect", f"{self.mock.base}/helix/awkward")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        # This shape hides its image under media.large.
+        self.assertIn("Set these by hand", result.stdout)
+        self.assertIn("image", result.stdout)
+
+    def test_inspect_explains_a_response_with_no_records(self):
+        result = self.run_cli(
+            "connectors", "--inspect", f"{self.mock.base}/helix/not-a-list")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("No list of records", result.stdout)
+        self.assertIn("Path to results", result.stdout)
+
+    def test_inspect_reaches_only_the_host_it_was_given(self):
+        result = self.run_cli("connectors", "--inspect",
+                              f"{self.mock.base}/helix/search")
+        # No key supplied, so the service refuses - but it was reached.
+        self.assertIn("401", result.stderr + result.stdout)
+
+    def test_a_malformed_header_is_refused(self):
+        result = self.run_cli("connectors", "--inspect",
+                              f"{self.mock.base}/helix/search", "--header", "oops")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("NAME:VALUE", result.stderr)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

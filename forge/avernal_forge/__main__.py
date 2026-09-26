@@ -108,6 +108,15 @@ def build_parser() -> argparse.ArgumentParser:
     connectors.add_argument("--no-browser", action="store_true",
                             dest="no_browser",
                             help="print the consent URL instead of opening it")
+    connectors.add_argument("--set", metavar="ID", dest="set_id",
+                            help="configure a connector: --set custom key=value ...")
+    connectors.add_argument("settings", nargs="*", metavar="KEY=VALUE",
+                            help="settings for --set")
+    connectors.add_argument("--inspect", metavar="URL",
+                            help="fetch a JSON API once and report how to map it")
+    connectors.add_argument("--header", action="append", default=[],
+                            metavar="NAME:VALUE",
+                            help="header for --inspect, repeatable")
     _add_common(connectors)
     return parser
 
@@ -455,9 +464,153 @@ def _login(args: argparse.Namespace) -> int:
     return 0
 
 
+def _set_credentials(args: argparse.Namespace) -> int:
+    """Configure a connector from the command line instead of the studio."""
+    from .connectors import ConnectorHub, ConnectorStore
+
+    config = config_from_args(args)
+    hub = ConnectorHub(config, ConnectorStore(config.connectors_path))
+    connector = hub.get(args.set_id)
+    if connector is None:
+        print(f"Unknown connector {args.set_id!r}.", file=sys.stderr)
+        return 1
+
+    known = {field.name for field in connector.credential_fields}
+    if not args.settings:
+        print(f"{connector.label} takes:\n")
+        for field in connector.credential_fields:
+            need = "required" if field.required else "optional"
+            hint = f"  e.g. {field.placeholder}" if field.placeholder else ""
+            print(f"  {field.name:<18} {need:<8} {field.label}{hint}")
+        print("\nFor example:")
+        print(f"  python3 run.py connectors --set {connector.id} \\")
+        print("      base_url=https://helix.example.com \\")
+        print("      'search_path=/api/search?q={query}&limit={limit}'")
+        print("\nQuote any value containing & or ? so the shell keeps it intact.")
+        return 0
+
+    values: dict[str, str] = {}
+    for pair in args.settings:
+        if "=" not in pair:
+            print(f"{pair!r} is not key=value.", file=sys.stderr)
+            return 1
+        key, value = pair.split("=", 1)
+        key = key.strip()
+        if key not in known:
+            print(f"{connector.label} has no field {key!r}. "
+                  f"Known: {', '.join(sorted(known))}", file=sys.stderr)
+            return 1
+        values[key] = value
+
+    hub.set_credentials(connector.id, values)
+    enabled = set(hub.enabled_ids)
+    enabled.add(connector.id)
+    hub.set_enabled(sorted(enabled))
+
+    credentials = hub.store.credentials(connector.id)
+    missing = connector.missing_fields(credentials)
+    # Use the described label, so a connector that was just given a name
+    # reports under that name rather than its generic one.
+    label = connector.describe(credentials).get("label", connector.label)
+    # Values are echoed back as set/not set, never printed.
+    print(f"Saved {len(values)} setting(s) for {label}.")
+    for field in connector.credential_fields:
+        state = "set" if credentials.get(field.name) else "-"
+        print(f"  {field.name:<18} {state}")
+    if missing:
+        print(f"\nStill needs: {', '.join(missing)}")
+        return 0
+    print(f"\n{label} is configured and switched on.")
+    print("Check it reaches your service with:")
+    print(f"  python3 run.py connectors --check --only {connector.id} --online")
+    return 0
+
+
+def _inspect_api(args: argparse.Namespace) -> int:
+    """Fetch a JSON API once and report the mapping it needs.
+
+    Working out where the title and image live in someone else's response is
+    the fiddly part of connecting an in-house service, so this does it rather
+    than leaving it to trial and error.
+    """
+    import json as _json
+    import urllib.parse
+
+    from .connectors.custom import GUESSES, find_results, first_present
+    from .connectors.net import NetworkError, NetworkGate
+
+    config = config_from_args(args)
+    url = args.inspect
+
+    headers = {}
+    for raw in args.header:
+        if ":" not in raw:
+            print(f"{raw!r} is not NAME:VALUE.", file=sys.stderr)
+            return 1
+        name, value = raw.split(":", 1)
+        headers[name.strip()] = value.strip()
+
+    class _InspectConfig:
+        online = True
+        allow_private_hosts = bool(getattr(config, "allow_private_hosts", False))
+
+    host = urllib.parse.urlsplit(url).netloc.split(":")[0]
+    gate = NetworkGate(_InspectConfig())
+    gate.set_allowed_domains({host})
+
+    print(f"Fetching {url}\n")
+    try:
+        payload = gate.json(url, connector="inspect", headers=headers,
+                            user_directed=True, timeout=30.0)
+    except NetworkError as exc:
+        print(f"{exc}", file=sys.stderr)
+        return 1
+
+    if isinstance(payload, dict):
+        print(f"Top-level keys: {', '.join(list(payload)[:12])}\n")
+
+    records = find_results(payload)
+    if records is None:
+        print("No list of records found in that response.")
+        print("If the results are somewhere unusual, set 'Path to results' to")
+        print("the dotted path, for example data.items. The response begins:\n")
+        print(_json.dumps(payload, indent=2)[:900])
+        return 1
+
+    print(f"Found {len(records)} record(s) automatically.")
+    if not records:
+        print("The list was empty - try a query that matches something.")
+        return 0
+
+    sample = records[0]
+    print(f"Fields on the first record: {', '.join(list(sample)[:14])}\n")
+
+    detected = {kind: first_present(sample, "", kind) for kind in GUESSES}
+    print("Auto-detected:")
+    for kind in ("title", "image", "thumb", "page", "summary", "author"):
+        value = detected.get(kind) or ""
+        shown = (value[:58] + "...") if len(value) > 58 else value
+        print(f"  {kind:<8} {shown or '(not found)'}")
+
+    gaps = [k for k in ("title", "image") if not detected.get(k)]
+    print()
+    if not gaps:
+        print("Nothing to map by hand - the defaults read this API correctly.")
+    else:
+        print(f"Set these by hand, since auto-detection missed them: "
+              f"{', '.join(gaps)}")
+        print("Pick the right key from the record above; dotted paths work,")
+        print("for example media.large or images.0.url.")
+    return 0
+
+
 def cmd_connectors(args: argparse.Namespace) -> int:
     if getattr(args, "login", None):
         return _login(args)
+    if getattr(args, "set_id", None):
+        return _set_credentials(args)
+    if getattr(args, "inspect", None):
+        return _inspect_api(args)
 
     from .connectors import ConnectorHub, ConnectorStore
 

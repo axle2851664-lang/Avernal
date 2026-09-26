@@ -65,9 +65,11 @@ const ok = (name, pass, detail='') => { results.push([pass?'PASS':'FAIL', name, 
   await page.click('#generate-btn');
   await page.waitForFunction(() => document.querySelectorAll('.card__clip').length > 0, { timeout: 60000 });
   ok('clip generates', true, await page.textContent('.card__clip'));
-  const a = await page.locator('#stage-grid img, #stage-grid video').first().screenshot();
+  // Screenshot the container, not the child: a child can be replaced between
+  // the two shots while a batch is still arriving.
+  const a = await page.locator('#stage-grid').screenshot();
   await page.waitForTimeout(700);
-  const b2 = await page.locator('#stage-grid img, #stage-grid video').first().screenshot();
+  const b2 = await page.locator('#stage-grid').screenshot();
   ok('clip animates in page', Buffer.compare(a,b2) !== 0);
 
   // --- gallery search + favourites filter
@@ -79,18 +81,49 @@ const ok = (name, pass, detail='') => { results.push([pass?'PASS':'FAIL', name, 
   await page.waitForTimeout(600);
   await page.click('#fav-filter');
   await page.waitForTimeout(700);
-  ok('favourites filter', (await page.$$eval('#gallery-grid .card', c=>c.length)) === 1);
+  // Compared against what the server says rather than a fixed number, so a
+  // favourite left over from a previous run does not fail the check.
+  const favTotal = await page.evaluate(async () =>
+    (await (await fetch('/api/gallery?favorites=1&limit=200')).json()).total);
+  const favShown = await page.$$eval('#gallery-grid .card', c=>c.length);
+  ok('favourites filter', favShown === favTotal, favShown+' of '+favTotal);
   await page.click('#fav-filter');
   await page.waitForTimeout(600);
+
+  // Clear the favourites this run set, so it leaves the gallery as it found it.
+  await page.evaluate(async () => {
+    const page1 = await (await fetch('/api/gallery?favorites=1&limit=200')).json();
+    for (const item of page1.items) {
+      await fetch('/api/gallery/' + item.id + '/favorite',
+        { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ favorite: false }) });
+    }
+  });
 
   // --- references
   await page.click('#tab-references');
   await page.waitForTimeout(500);
   ok('references tab opens', await page.isVisible('#ref-connector'));
+
+  // The connector checks need live connectors on. Turn them on if a previous
+  // run, or the user, left them off.
+  const startedOnline = await page.isChecked('#online-toggle');
+  if (!startedOnline) {
+    await page.click('.switch__track');
+    await page.waitForTimeout(800);
+  }
   ok('network on', (await page.textContent('#net-pill').catch(()=>'')) === 'network on');
   ok('local pill honest', (await page.textContent('#local-pill-text')) === 'generation stays local');
+  const expected = await page.evaluate(async () => {
+    const data = await (await fetch('/api/connectors')).json();
+    return {
+      total: data.connectors.length,
+      usable: data.connectors.filter(c => c.enabled && c.configured).length,
+    };
+  });
   const sources = await page.$$eval('#ref-connector option', o=>o.length);
-  ok('all connectors listed', sources === 9, sources+' sources');
+  ok('every usable connector is offered', sources === expected.usable,
+     sources+' of '+expected.usable);
 
   for (const id of ['wikipedia','commons','openverse','reddit','pinterest','mastodon','bluesky','reso']) {
     await page.selectOption('#ref-connector', id);
@@ -127,7 +160,9 @@ const ok = (name, pass, detail='') => { results.push([pass?'PASS':'FAIL', name, 
   await page.keyboard.press('Escape');
   await page.click('#connectors-setup');
   await page.waitForTimeout(700);
-  ok('connectors panel', (await page.$$eval('.connector', c=>c.length)) === 9);
+  ok('connectors panel lists them all',
+     (await page.$$eval('.connector', c=>c.length)) === expected.total,
+     expected.total+' connectors');
   await page.keyboard.press('Escape');
   await page.click('#api-help-btn');
   await page.waitForTimeout(400);
@@ -135,10 +170,18 @@ const ok = (name, pass, detail='') => { results.push([pass?'PASS':'FAIL', name, 
   await page.keyboard.press('Escape');
 
   // --- offline toggle
+  const wasOnline = startedOnline;
   await page.click('.switch__track');
   await page.waitForTimeout(800);
   ok('network can be switched off', (await page.textContent('#net-pill').catch(()=>'absent')) === 'absent');
   ok('local pill back to 100%', (await page.textContent('#local-pill-text')) === '100% local');
+
+  // Leave it as it was found, so the script is repeatable.
+  if (wasOnline !== (await page.isChecked('#online-toggle'))) {
+    await page.click('.switch__track');
+    await page.waitForTimeout(600);
+  }
+  ok('network state restored', (await page.isChecked('#online-toggle')) === wasOnline);
 
   // --- mobile
   await page.setViewportSize({ width: 390, height: 844 });

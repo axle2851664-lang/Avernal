@@ -67,6 +67,8 @@ class CredentialField:
     secret: bool = True
     required: bool = True
     placeholder: str = ""
+    #: Fields most people never touch, folded away in the studio.
+    advanced: bool = False
 
 
 class Connector:
@@ -127,6 +129,7 @@ class Connector:
                     "secret": f.secret,
                     "required": f.required,
                     "placeholder": f.placeholder,
+                    "advanced": f.advanced,
                 }
                 for f in self.credential_fields
             ],

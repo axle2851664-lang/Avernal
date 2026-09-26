@@ -132,15 +132,17 @@ class CustomApiConnector(Connector):
         CredentialField("auth_header_value", "Auth header value", secret=True,
                         required=False, placeholder="Bearer ..."),
         CredentialField("results_path", "Path to results", secret=False,
-                        required=False, placeholder="data.items"),
-        CredentialField("title_field", "Title field", secret=False, required=False),
+                        required=False, placeholder="data.items", advanced=True),
+        CredentialField("title_field", "Title field", secret=False,
+                        required=False, advanced=True),
         CredentialField("image_field", "Image URL field", secret=False,
-                        required=False),
+                        required=False, advanced=True),
         CredentialField("thumb_field", "Thumbnail field", secret=False,
-                        required=False),
-        CredentialField("page_field", "Link field", secret=False, required=False),
+                        required=False, advanced=True),
+        CredentialField("page_field", "Link field", secret=False,
+                        required=False, advanced=True),
         CredentialField("summary_field", "Description field", secret=False,
-                        required=False),
+                        required=False, advanced=True),
     )
     provides_text = True
 

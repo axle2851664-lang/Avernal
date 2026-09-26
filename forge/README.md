@@ -322,6 +322,45 @@ Dotted paths work, including numeric indices. Only the host in your base URL
 becomes reachable, and the auth header value is treated as a secret like any
 other key.
 
+#### Working out the mapping
+
+Rather than guessing, point the inspector at your API once. It fetches a
+single response and tells you what, if anything, needs mapping by hand:
+
+```bash
+python3 run.py connectors --inspect 'https://helix.example.com/api/search?q=barn' \
+    --header 'X-Api-Key: your-key'
+```
+
+```
+Found 2 record(s) automatically.
+Fields on the first record: id, title, description, image_url, permalink, author
+
+Auto-detected:
+  title    Ridge at dawn
+  image    https://cdn.example.org/a1.jpg
+  page     https://helix.example.org/a/a1
+
+Nothing to map by hand - the defaults read this API correctly.
+```
+
+Then configure it, from the terminal rather than the panel if you prefer:
+
+```bash
+python3 run.py connectors --set custom \
+    service_name=Helix \
+    base_url=https://helix.example.com \
+    'search_path=/api/search?q={query}&limit={limit}' \
+    auth_header_name=X-Api-Key \
+    auth_header_value=your-key
+
+python3 run.py connectors --check --only custom --online
+```
+
+Quote any value containing `&` or `?` so the shell keeps it intact. Running
+`--set` with no values lists the fields the connector takes. Values are never
+echoed back - it reports each field as set or not.
+
 ### How the network gate works
 
 Every outbound request goes through one chokepoint that:
@@ -537,6 +576,7 @@ forge/
     ├── test_engines_offline.py  diffusers engines against fake torch
     ├── test_gmail.py            Gmail connector and the OAuth round trip
     ├── test_custom_api.py       the configurable connector, tidy and awkward
+    ├── test_integrity.py        static checks for invisible-at-runtime slips
     ├── fake_torch.py            thin stand-ins for torch/diffusers/PIL
     ├── browser_regression.js    the studio driven in a real browser
     └── mock_upstreams.py        recorded upstream response shapes
@@ -548,7 +588,7 @@ forge/
 python3 -m unittest discover -s tests
 ```
 
-217 tests, no dependencies:
+238 tests, no dependencies:
 
 - **Generation** - batching, seed reproducibility, cancellation, the gallery,
   the provider API, request validation, path-traversal protection and API-key
@@ -578,7 +618,13 @@ python3 -m unittest discover -s tests
   refused.
 - **Custom API** - an ordinary response read with no configuration at all, an
   awkward one mapped by hand, result lists found under unfamiliar keys, and
-  "no results" told apart from "could not find the results".
+  "no results" told apart from "could not find the results", plus the `--set`
+  and `--inspect` commands end to end.
+- **Integrity** - static checks for the mistakes that are invisible at
+  runtime: a dataclass field renamed in one place but not another, a test
+  class stranded after `unittest.main()` and never collected, JavaScript
+  reaching for an element id that no longer exists, a heavy optional import
+  creeping to module level, or a CDN reference slipping into the studio.
 
 The connector and installer tests deliberately do not call the real services,
 so they run anywhere - including with no network at all.

@@ -413,6 +413,9 @@
     if (connector.credential_fields.length) {
       var fields = document.createElement("div");
       fields.className = "connector__fields";
+      var advanced = document.createElement("div");
+      advanced.className = "connector__fields";
+
       connector.credential_fields.forEach(function (field) {
         var input = document.createElement("input");
         input.type = field.secret ? "password" : "text";
@@ -420,9 +423,20 @@
           (field.placeholder ? " — " + field.placeholder : "");
         input.autocomplete = "off";
         inputs[field.name] = input;
-        fields.appendChild(input);
+        (field.advanced ? advanced : fields).appendChild(input);
       });
+
       row.appendChild(fields);
+      if (advanced.children.length) {
+        // Overrides for an unusual API: out of the way until needed.
+        var details = document.createElement("details");
+        details.className = "connector__advanced";
+        var summary = document.createElement("summary");
+        summary.textContent = "Field mapping — only if auto-detection misses";
+        details.appendChild(summary);
+        details.appendChild(advanced);
+        row.appendChild(details);
+      }
     }
 
     var actions = document.createElement("div");
