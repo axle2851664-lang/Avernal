@@ -185,6 +185,56 @@ class TestConnectorContract(unittest.TestCase):
             names = [f.name for f in connector.credential_fields]
             self.assertEqual(len(names), len(set(names)), connector.id)
 
+class TestDatabaseHandles(unittest.TestCase):
+    """`with sqlite3.connect(...)` commits but does not close.
+
+    Relying on garbage collection left a connection open per gallery
+    operation, which a soak test showed as file descriptors climbing steadily
+    under load. These keep it from coming back.
+    """
+
+    def test_no_store_opens_a_connection_without_closing_it(self):
+        source = (ROOT / "avernal_forge" / "storage.py").read_text()
+        self.assertNotIn(
+            "with self._connect() as conn", source,
+            "use _session(), which closes the connection as well as "
+            "committing the transaction",
+        )
+
+    def test_handles_stay_flat_across_many_operations(self):
+        import tempfile
+
+        from avernal_forge.png import encode_png
+        from avernal_forge.storage import Gallery
+
+        directory = Path(tempfile.mkdtemp())
+        gallery = Gallery(directory / "f.db", directory / "out")
+        pixels = encode_png(4, 4, bytes(48))
+
+        def handles() -> int:
+            try:
+                return len(list(Path("/proc/self/fd").iterdir()))
+            except OSError:
+                self.skipTest("no /proc on this platform")
+                return 0
+
+        # Warm up first, so one-off allocations are not counted as growth.
+        for index in range(10):
+            gallery.add({"id": f"warm{index}", "prompt": "x"}, pixels)
+            gallery.list(limit=5)
+
+        before = handles()
+        for index in range(200):
+            gallery.add({"id": f"row{index}", "prompt": "soak"}, pixels)
+            gallery.list(limit=5)
+            gallery.stats()
+        after = handles()
+
+        self.assertLessEqual(
+            after, before + 5,
+            f"file descriptors grew {before} -> {after} over 200 operations",
+        )
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

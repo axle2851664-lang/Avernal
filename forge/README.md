@@ -577,6 +577,7 @@ forge/
     ├── test_gmail.py            Gmail connector and the OAuth round trip
     ├── test_custom_api.py       the configurable connector, tidy and awkward
     ├── test_integrity.py        static checks for invisible-at-runtime slips
+    ├── soak.py                  hundreds of concurrent generations, all verified
     ├── fake_torch.py            thin stand-ins for torch/diffusers/PIL
     ├── browser_regression.js    the studio driven in a real browser
     └── mock_upstreams.py        recorded upstream response shapes
@@ -588,7 +589,7 @@ forge/
 python3 -m unittest discover -s tests
 ```
 
-238 tests, no dependencies:
+240 tests, no dependencies:
 
 - **Generation** - batching, seed reproducibility, cancellation, the gallery,
   the provider API, request validation, path-traversal protection and API-key
@@ -638,3 +639,26 @@ works when a person uses it:
 python3 run.py serve --port 8794 &
 node tests/browser_regression.js
 ```
+
+### Soak test
+
+Single runs show a feature works. Hundreds of concurrent runs show it keeps
+working, which is a different question:
+
+```bash
+python3 tests/soak.py                                   # 250 images, 60 clips
+python3 tests/soak.py --images 600 --videos 150 \
+    --workers 4 --concurrency 10
+```
+
+It starts a real server, fires randomised generations from several clients at
+once, and checks every single output: that the file is a valid PNG or APNG,
+that its dimensions and frame count are what was asked for, that the seed came
+back as given. It then checks that the same seed produces identical bytes,
+that jobs cancel under load, that the provider API still answers, and that the
+gallery index agrees with the files on disk - while watching memory, file
+descriptors and thread count throughout, and comparing job times early in the
+run against late to catch anything that slows as the gallery fills.
+
+It exits non-zero on any failure, so it can gate a release. The last run
+covered 750 jobs: all passed, descriptors flat, pace steady.

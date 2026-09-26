@@ -11,6 +11,7 @@ import json
 import sqlite3
 import time
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -64,7 +65,7 @@ class Gallery:
         self.outputs_dir = Path(outputs_dir)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.outputs_dir.mkdir(parents=True, exist_ok=True)
-        with self._connect() as conn:
+        with self._session() as conn:
             conn.executescript(SCHEMA)
             self._migrate(conn)
 
@@ -73,6 +74,22 @@ class Gallery:
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
         return conn
+
+    @contextmanager
+    def _session(self):
+        """A connection that is committed and then actually closed.
+
+        `with sqlite3.connect(...)` manages the transaction, not the
+        connection: the handle stays open until garbage collection. Under
+        load that leaves a growing pile of descriptors on the database and
+        its write-ahead log, which a soak test shows as a steady climb.
+        """
+        conn = self._connect()
+        try:
+            with conn:
+                yield conn
+        finally:
+            conn.close()
 
     @staticmethod
     def _migrate(conn: sqlite3.Connection) -> None:
@@ -114,12 +131,12 @@ class Gallery:
             "extra": json.dumps(record.get("extra", {}), separators=(",", ":")),
         }
         placeholders = ", ".join(f":{c.strip()}" for c in _COLUMNS.split(","))
-        with self._connect() as conn:
+        with self._session() as conn:
             conn.execute(f"INSERT INTO images ({_COLUMNS}) VALUES ({placeholders})", row)
         return self._public(row)
 
     def set_favorite(self, image_id: str, favorite: bool) -> dict[str, Any] | None:
-        with self._connect() as conn:
+        with self._session() as conn:
             cur = conn.execute(
                 "UPDATE images SET favorite = ? WHERE id = ?",
                 (1 if favorite else 0, image_id),
@@ -132,7 +149,7 @@ class Gallery:
         record = self.get(image_id)
         if record is None:
             return False
-        with self._connect() as conn:
+        with self._session() as conn:
             conn.execute("DELETE FROM images WHERE id = ?", (image_id,))
         path = self.outputs_dir / record["filename"]
         try:
@@ -144,7 +161,7 @@ class Gallery:
     # ------------------------------------------------------------------- read
 
     def get(self, image_id: str) -> dict[str, Any] | None:
-        with self._connect() as conn:
+        with self._session() as conn:
             row = conn.execute(
                 f"SELECT {_COLUMNS} FROM images WHERE id = ?", (image_id,)
             ).fetchone()
@@ -167,7 +184,7 @@ class Gallery:
         if favorites_only:
             where.append("favorite = 1")
         clause = f"WHERE {' AND '.join(where)}" if where else ""
-        with self._connect() as conn:
+        with self._session() as conn:
             total = conn.execute(
                 f"SELECT COUNT(*) FROM images {clause}", params
             ).fetchone()[0]
@@ -184,7 +201,7 @@ class Gallery:
         }
 
     def stats(self) -> dict[str, Any]:
-        with self._connect() as conn:
+        with self._session() as conn:
             row = conn.execute(
                 "SELECT COUNT(*) AS n, COALESCE(SUM(favorite), 0) AS favs, "
                 "COALESCE(SUM(duration_ms), 0) AS ms, "
@@ -271,7 +288,7 @@ class ReferenceStore:
         self.db_path = Path(db_path)
         self.refs_dir = Path(refs_dir)
         self.refs_dir.mkdir(parents=True, exist_ok=True)
-        with self._connect() as conn:
+        with self._session() as conn:
             conn.executescript(REFERENCE_SCHEMA)
             present = {r["name"] for r in conn.execute("PRAGMA table_info(references_)")}
             for column, definition in _REF_MIGRATIONS.items():
@@ -285,6 +302,22 @@ class ReferenceStore:
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
         return conn
+
+    @contextmanager
+    def _session(self):
+        """A connection that is committed and then actually closed.
+
+        `with sqlite3.connect(...)` manages the transaction, not the
+        connection: the handle stays open until garbage collection. Under
+        load that leaves a growing pile of descriptors on the database and
+        its write-ahead log, which a soak test shows as a steady climb.
+        """
+        conn = self._connect()
+        try:
+            with conn:
+                yield conn
+        finally:
+            conn.close()
 
     def add(
         self,
@@ -324,14 +357,14 @@ class ReferenceStore:
             "extra": json.dumps(record.get("extra") or {}, separators=(",", ":")),
         }
         placeholders = ", ".join(f":{c.strip()}" for c in _REF_COLUMNS.split(","))
-        with self._connect() as conn:
+        with self._session() as conn:
             conn.execute(
                 f"INSERT INTO references_ ({_REF_COLUMNS}) VALUES ({placeholders})", row
             )
         return self._public(row)
 
     def get(self, reference_id: str) -> dict[str, Any] | None:
-        with self._connect() as conn:
+        with self._session() as conn:
             row = conn.execute(
                 f"SELECT {_REF_COLUMNS} FROM references_ WHERE id = ?", (reference_id,)
             ).fetchone()
@@ -346,7 +379,7 @@ class ReferenceStore:
 
     def list(self, limit: int = 60, offset: int = 0) -> dict[str, Any]:
         limit = max(1, min(int(limit), 500))
-        with self._connect() as conn:
+        with self._session() as conn:
             total = conn.execute("SELECT COUNT(*) FROM references_").fetchone()[0]
             rows = conn.execute(
                 f"SELECT {_REF_COLUMNS} FROM references_ "
@@ -362,7 +395,7 @@ class ReferenceStore:
         record = self.get(reference_id)
         if record is None:
             return False
-        with self._connect() as conn:
+        with self._session() as conn:
             conn.execute("DELETE FROM references_ WHERE id = ?", (reference_id,))
         if record["filename"]:
             try:
