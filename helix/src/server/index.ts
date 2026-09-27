@@ -6,6 +6,7 @@ import { dirname, join } from 'path';
 import { GmailSync, type Email } from '../integrations/gmail.js';
 import { YouTubeSync, type Video } from '../integrations/youtube.js';
 import { generateImage, generateVideo } from '../integrations/generators.js';
+import { ElevenLabsVoice, VoiceError } from '../integrations/elevenlabs.js';
 import { TokenStore } from './token-store.js';
 import { isLoopback, requireToken } from './auth.js';
 import { draftCapture } from '../core/galaxy/capture.js';
@@ -457,6 +458,67 @@ app.get('/galaxy', async (_req: Request, res: Response) => {
   }
 });
 
+/* ------------------------------------------------------------------ voice */
+
+/*
+ * Speech through ElevenLabs.
+ *
+ * The key is read from the environment once, here, and lives only inside this
+ * object. No route returns it, no error carries it, and nothing writes it
+ * down — the memory layer refuses key-shaped text for the same reason. To give
+ * Helix a voice:
+ *
+ *   ELEVENLABS_API_KEY=... ELEVENLABS_VOICE_ID=... npm run server
+ */
+const voice = ElevenLabsVoice.fromEnvironment();
+
+function sendVoiceError(res: Response, error: unknown): void {
+  if (error instanceof VoiceError) {
+    res.status(error.status).json({ error: error.message });
+    return;
+  }
+  // Anything unexpected is reported without its detail: an unhandled error
+  // from an HTTP client is exactly the kind that quotes the request back.
+  console.error('Voice failed:', error);
+  res.status(500).json({ error: 'Speech failed.' });
+}
+
+/** Whether Helix can speak, and what to set if it cannot. Never the key. */
+app.get('/voice/status', (_req: Request, res: Response) => {
+  res.json(voice.status());
+});
+
+app.get('/voice/voices', async (_req: Request, res: Response) => {
+  try {
+    res.json({ voices: await voice.voices() });
+  } catch (error) {
+    sendVoiceError(res, error);
+  }
+});
+
+/*
+ * Speak a line. The audio comes back as the response body rather than a file
+ * on disk: this is a spoken reply, not an artefact, and writing every one of
+ * them into the data root would accumulate a transcript nobody asked for.
+ */
+app.post('/voice/speak', async (req: Request, res: Response) => {
+  const { text } = req.body as { text?: string };
+  if (typeof text !== 'string') {
+    return res.status(400).json({ error: 'Missing text' });
+  }
+
+  try {
+    const speech = await voice.speak(text);
+    res.setHeader('Content-Type', speech.contentType);
+    res.setHeader('Content-Length', String(speech.audio.length));
+    // Spoken lines are one-offs; a cached one would be the wrong joke later.
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(speech.audio);
+  } catch (error) {
+    sendVoiceError(res, error);
+  }
+});
+
 /* ------------------------------------------------------------------ brain */
 
 /*
@@ -638,6 +700,7 @@ app.get('/health', (_req: Request, res: Response) => {
       gmail: tokenStore.has('gmail') ? 'authenticated' : 'not authenticated',
       youtube: tokenStore.has('youtube') ? 'authenticated' : 'not authenticated',
       generators: 'available',
+      voice: voice.configured ? 'available' : 'not configured',
     },
   });
 });

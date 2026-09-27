@@ -39,6 +39,23 @@ describe('SYSTEM_PROMPT', () => {
   it('handles small talk without reaching for the vault', () => {
     expect(SYSTEM_PROMPT).toMatch(/do not mention the notes/i);
   });
+
+  it('licenses the humour it is supposed to have', () => {
+    expect(SYSTEM_PROMPT).toMatch(/deadpan/i);
+    expect(SYSTEM_PROMPT).toMatch(/gallows/i);
+  });
+
+  it('keeps the jokes off what people are rather than what they do', () => {
+    // The one line in the character that is load-bearing rather than
+    // decorative: it is what separates a funny assistant from a liability.
+    expect(SYSTEM_PROMPT).toMatch(/never funny, and never attempted/i);
+    expect(SYSTEM_PROMPT).toMatch(/accident of birth/i);
+  });
+
+  it('does not let the humour licence loosen the rule against invention', () => {
+    // A persona told to be funny will invent a better fact if allowed to.
+    expect(SYSTEM_PROMPT).toMatch(/jokes are yours to invent\. the facts are not/i);
+  });
 });
 
 describe('renderNotesContext', () => {
@@ -63,7 +80,7 @@ describe('bootGreeting', () => {
     const evening = new Date('2026-09-06T20:00:00');
 
     expect(bootGreeting(128, evening)).toBe(
-      'Good evening, sir. 128 notes indexed, all present and accounted for.',
+      'Good evening, sir. 128 notes indexed, filed, and waiting to be ignored.',
     );
   });
 
@@ -82,6 +99,6 @@ describe('bootGreeting', () => {
 
     expect(greeting.startsWith('Good evening, sir.')).toBe(true);
     expect(greeting).not.toContain('0 notes');
-    expect(greeting).not.toContain('present and accounted for');
+    expect(greeting).not.toContain('waiting to be ignored');
   });
 });

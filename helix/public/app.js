@@ -145,6 +145,7 @@
           'sig-gmail': services.gmail === 'authenticated',
           'sig-youtube': services.youtube === 'authenticated',
           'sig-generators': services.generators === 'available',
+          'sig-voice': services.voice === 'available',
         };
         for (var id in states) {
           if (Object.prototype.hasOwnProperty.call(states, id)) {
@@ -155,7 +156,7 @@
       .catch(function () {
         // Unknown is its own state: an unreachable server is not the same as a
         // subsystem reporting that it is disconnected.
-        var ids = ['sig-gmail', 'sig-youtube', 'sig-generators'];
+        var ids = ['sig-gmail', 'sig-youtube', 'sig-generators', 'sig-voice'];
         for (var i = 0; i < ids.length; i += 1) el(ids[i]).dataset.state = 'fault';
       });
   }
@@ -306,6 +307,43 @@
     }
   });
 
+  /* ----------------------------------------------------------------- voice */
+
+  // One element, reused. A new Audio per line would leave the previous one
+  // playing, and Helix talking over himself is not the joke.
+  var player = new Audio();
+
+  function speak(text) {
+    busy(1);
+    return fetch('/voice/speak', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: text }),
+    })
+      .then(function (res) {
+        if (!res.ok) {
+          return res.json().then(function (body) {
+            throw new Error(body.error || 'Speech failed.');
+          });
+        }
+        return res.blob();
+      })
+      .then(function (blob) {
+        // The previous line's object URL is released before the next is made,
+        // so a long session does not hold on to every reply it ever spoke.
+        if (player.src !== '') URL.revokeObjectURL(player.src);
+        player.src = URL.createObjectURL(blob);
+        // Autoplay may be refused until the page has been interacted with.
+        // Speaking is always triggered by a click or a keystroke, so this
+        // should not arise — but a rejected promise must not go unhandled.
+        return player.play().catch(function (err) {
+          throw new Error('The browser would not play it: ' + err.message);
+        });
+      })
+      .then(function () { busy(-1); })
+      .catch(function (err) { busy(-1); throw err; });
+  }
+
   /* --------------------------------------------------------- console hooks */
 
   /*
@@ -334,6 +372,7 @@
       if (view === null || typeof view.mark !== 'function') return false;
       return view.mark(id) === id;
     },
+    speak: speak,
     focusNoteField: function () {
       showPanel('note-panel');
       el('note').focus();

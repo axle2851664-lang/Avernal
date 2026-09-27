@@ -105,6 +105,25 @@
       },
     },
     {
+      name: 'SPEAK',
+      arg: '<text>',
+      hint: 'Say something out loud, through ElevenLabs',
+      network: true,
+      run: function (arg) {
+        if (!api().speak) return fail('The page is not ready yet.'), 'stay';
+        if (arg === '') {
+          report(['Type SPEAK followed by the line you want said.']);
+          return 'stay';
+        }
+        report(['Speaking\u2026']);
+        api()
+          .speak(arg)
+          .then(function () { report(['Said it.']); })
+          .catch(function (err) { fail(err.message); });
+        return 'stay';
+      },
+    },
+    {
       name: 'ANALYZE',
       hint: 'Report the shape of the vault',
       run: function () {
@@ -306,6 +325,14 @@
     // is what most people will type, and the explicit one is discoverable.
     var searchTerm = null;
     if (upper.indexOf('SEARCH') === 0) searchTerm = query.slice(6).trim();
+
+    // SPEAK carries its text as an argument, so the row has to be built with
+    // that argument rather than matched as a bare command name.
+    if (upper.indexOf('SPEAK') === 0) {
+      var line = query.slice(5).trim();
+      var speakCommand = COMMANDS.filter(function (c) { return c.name === 'SPEAK'; })[0];
+      return [commandRow(speakCommand, line)];
+    }
 
     var results = [];
 
