@@ -24,8 +24,26 @@ audited gate with a host allowlist, and you can see every request it made. See
 ## Quick start
 
 ```bash
+cd forge
 python3 run.py
 ```
+
+**On Windows** use `python` rather than `python3`, from PowerShell:
+
+```powershell
+cd forge
+python run.py
+```
+
+Install Python from [python.org](https://www.python.org/downloads/) and tick
+**"Add python.exe to PATH"** during setup. If PowerShell still says *"Python
+was not found; run without arguments to install from the Microsoft Store"*
+after installing, that is Windows' placeholder stub taking precedence: turn it
+off under Settings → Apps → Advanced app settings → App execution aliases, by
+switching off the entries for `python.exe` and `python3.exe`.
+
+Note that every command below runs from inside the `forge` folder, and that
+`python3` becomes `python` on Windows.
 
 That is the whole setup. Open <http://127.0.0.1:8787> and generate. Forge needs
 **nothing but Python 3.10+** — no pip install, no virtualenv, no Node, no
@@ -263,7 +281,9 @@ screen, catches the redirect on a loopback port, and stores the refresh token.
 Revoke access any time from your Google account's security settings; Forge
 will then say the token was revoked and ask you to sign in again.
 
-Keys are stored in `~/.avernal-forge/connectors.json` with `0600` permissions,
+Keys are stored in `~/.avernal-forge/connectors.json` with `0600` permissions
+(on Windows that call is a no-op, so the file inherits your profile's normal
+permissions rather than being locked to your user),
 or supplied as `AVERNAL_FORGE_<CONNECTOR>_<FIELD>` environment variables if you
 would rather not write them to disk. They are never returned by the API, never
 logged, and never sent anywhere except the service they belong to.
@@ -660,5 +680,7 @@ gallery index agrees with the files on disk - while watching memory, file
 descriptors and thread count throughout, and comparing job times early in the
 run against late to catch anything that slows as the gallery fills.
 
-It exits non-zero on any failure, so it can gate a release. The last run
+It exits non-zero on any failure, so it can gate a release. The memory,
+descriptor and thread figures come from `/proc`, so on Windows and macOS those
+read as zero while every generation check still runs. The last run
 covered 750 jobs: all passed, descriptors flat, pace steady.
