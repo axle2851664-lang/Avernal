@@ -43,10 +43,25 @@
   var PULSE_PER_MS = 1 / 2600; // one edge traversal every 2.6 seconds
   var GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 
+  /*
+   * Above this many edges, the ones facing away are not drawn.
+   *
+   * Edges are the entire cost of a frame — a full-width shell with a thousand
+   * long hairlines measured 28fps with them and 61fps without — and the half
+   * facing away draws between 3% and 8% alpha behind everything in front of
+   * it. Dropping those brings it back to 58fps.
+   *
+   * It is conditional because the reason for it is: a small vault costs
+   * nothing to draw in full, and there every connection is worth seeing.
+   * Batching the strokes instead was measured at 6fps, and drawing them onto
+   * a half-resolution layer at 30fps — both worse than this, and both tried
+   * before settling here.
+   */
+  var EDGE_CULL_ABOVE = 300;
+  var EDGE_BACK_CUTOFF = 0.5;
+
   // Half-thickness of the scanning plane, in shell units.
   var SCAN_BAND = 0.07;
-
-  var GRATICULE_SEGMENTS = 44;
 
   /**
    * A soft white dot, rendered once into an offscreen canvas.
@@ -122,26 +137,7 @@
     return placed;
   }
 
-  /** Three great circles, precomputed once: a surface for the points to sit on. */
-  function makeGraticule() {
-    var rings = [];
-    for (var r = 0; r < 3; r += 1) {
-      var ring = [];
-      for (var s = 0; s <= GRATICULE_SEGMENTS; s += 1) {
-        var t = (s / GRATICULE_SEGMENTS) * Math.PI * 2;
-        var a = Math.cos(t);
-        var b = Math.sin(t);
-        // Equator, then two meridians at right angles to each other.
-        if (r === 0) ring.push(a, 0, b);
-        else if (r === 1) ring.push(a, b, 0);
-        else ring.push(0, a, b);
-      }
-      rings.push(ring);
-    }
-    return rings;
-  }
-
-  function mount(canvas, ring) {
+  function mount(canvas) {
     var ctx = canvas.getContext('2d');
     if (ctx === null) return null; // No 2D context: the HUD still works.
 
@@ -152,7 +148,6 @@
     var fine = window.matchMedia('(pointer: fine)').matches;
 
     var glow = makeGlowSprite();
-    var graticule = makeGraticule();
 
     var points = [];
     var edges = [];
@@ -184,20 +179,13 @@
     /**
      * How far from the centre the outermost point may fall.
      *
-     * Taken from the rendered size of the CSS reticle rather than from the
-     * canvas, so the ring stays the single source of truth for the
-     * composition: change its size in the stylesheet at any breakpoint and the
-     * point cloud follows instead of having to be re-tuned to match.
+     * Width and height are weighted separately rather than taking the smaller
+     * of the two: the stage is wide and short on a desktop and tall and narrow
+     * on a phone, and one factor cannot serve both. The width factor is the
+     * one that keeps the shell clear of the corner readouts.
      */
     function shellRadius() {
-      if (ring !== null && ring !== undefined) {
-        var box = ring.getBoundingClientRect();
-        if (box.width > 0) return (box.width / 2) * 0.92;
-      }
-      // No reticle in the DOM: fall back to the canvas, weighting width and
-      // height separately so a tall narrow stage still yields a shell that
-      // fits across.
-      return Math.min(width * 0.26, height * 0.34);
+      return Math.min(width * 0.36, height * 0.46);
     }
 
     function resize() {
@@ -222,7 +210,7 @@
 
     // Rotation about Y (the turn) then about X (the pointer tilt). Written out
     // rather than composed through a matrix helper because it runs for every
-    // point, every edge endpoint and every graticule vertex on every frame.
+    // point and every edge endpoint on every frame.
     var sinY = 0;
     var cosY = 1;
     var sinX = 0;
@@ -263,21 +251,6 @@
       // little past each pole so the sweep has a clean start and finish.
       var scanY = 1.14 - (scan % 1) * 2.28;
 
-      /* Surface. Faint enough to read as a grid the points rest on rather
-         than as lines of its own. */
-      for (var g = 0; g < graticule.length; g += 1) {
-        var verts = graticule[g];
-        ctx.beginPath();
-        for (var v = 0; v < verts.length; v += 3) {
-          project(verts[v], verts[v + 1], verts[v + 2]);
-          if (v === 0) ctx.moveTo(outX, outY);
-          else ctx.lineTo(outX, outY);
-        }
-        ctx.strokeStyle = 'rgba(255,255,255,0.045)';
-        ctx.lineWidth = 1;
-        ctx.stroke();
-      }
-
       /* Points, projected once into the reused buffers. */
       for (var i = 0; i < points.length; i += 1) {
         var p = points[i];
@@ -297,10 +270,13 @@
          own bounding box. On a 400-note vault at 1440x900 and a 2x pixel
          ratio, batching into three paths cost 9fps against 59fps for this. */
       ctx.lineWidth = 1;
+      // -1 keeps every edge: no value of `lit` falls below it.
+      var cutoff = edges.length / 2 > EDGE_CULL_ABOVE ? EDGE_BACK_CUTOFF : -1;
       for (var e = 0; e < edges.length; e += 2) {
         var a = edges[e];
         var b = edges[e + 1];
         var lit = (pnear[a] + pnear[b]) / 2;
+        if (lit < cutoff) continue;
         ctx.strokeStyle = 'rgba(255,255,255,' + (0.03 + lit * 0.1).toFixed(3) + ')';
         ctx.beginPath();
         ctx.moveTo(px[a], py[a]);

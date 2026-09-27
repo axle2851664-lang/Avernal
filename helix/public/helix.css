@@ -451,10 +451,10 @@ a:hover { color: var(--hx-text); border-color: var(--hx-line-active); }
 
 .hx-stage {
   position: relative;
-  /* Tall enough to dominate, capped so a short laptop window still shows that
-     something follows below. */
-  height: min(78vh, 760px);
-  min-height: 420px;
+  /* The sphere is the screen. The cap keeps a hint of the console visible
+     below it on a short laptop window, so nothing looks like the whole page. */
+  height: min(88vh, 940px);
+  min-height: 460px;
 }
 
 /* The canvas fills the stage; HUD elements are positioned against it, not the
@@ -463,44 +463,6 @@ a:hover { color: var(--hx-text); border-color: var(--hx-line-active); }
   display: block;
   width: 100%;
   height: 100%;
-}
-
-/* A reticle behind the galaxy: two hairline rings, dead centre, drawn in CSS
-   so the canvas only ever has to think about data. */
-.hx-reticle {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  translate: -50% -50%;
-  pointer-events: none;
-  border: 1px solid var(--hx-line);
-  border-radius: 50%;
-  aspect-ratio: 1;
-  height: min(62vh, 600px);
-}
-
-.hx-reticle::after {
-  content: '';
-  position: absolute;
-  inset: 12%;
-  border: 1px solid var(--hx-line);
-  border-radius: 50%;
-}
-
-/* One slow rotating arc on the outer ring — the whole screen's only ambient
-   motion, and it is a single compositor-driven transform. */
-.hx-reticle::before {
-  content: '';
-  position: absolute;
-  inset: -1px;
-  border: 1px solid transparent;
-  border-top-color: var(--hx-line-active);
-  border-radius: 50%;
-  animation: hx-orbit 24s linear infinite;
-}
-
-@keyframes hx-orbit {
-  to { rotate: 360deg; }
 }
 
 /* ------------------------------------------------------------------- HUD */
@@ -605,7 +567,7 @@ a:hover { color: var(--hx-text); border-color: var(--hx-line-active); }
 
 /* ------------------------------------------------------------- centre mark */
 
-/* The wordmark sits in the middle of the reticle, under the galaxy points. */
+/* The wordmark sits at the centre of the shell, under the points. */
 .hx-core {
   position: absolute;
   top: 50%;
@@ -667,8 +629,7 @@ a:hover { color: var(--hx-text); border-color: var(--hx-line-active); }
 /* -------------------------------------------------------------- responsive */
 
 @media (max-width: 820px) {
-  .hx-stage { height: min(60vh, 520px); }
-  .hx-reticle { height: min(46vh, 400px); }
+  .hx-stage { height: min(74vh, 640px); }
   .hx-hud { padding: var(--hx-gap); gap: 0.5rem; }
   .hx-readout__value { font-size: 0.82rem; }
 }
@@ -700,10 +661,10 @@ a:hover { color: var(--hx-text); border-color: var(--hx-line-active); }
   /* Taller than it needs to be for the ring alone: the top strip takes two
      rows at this width, and the stage has to be deep enough that the ring
      still centres below them. */
-  .hx-stage { height: 58vh; min-height: 380px; }
-  /* Bounded by width as well as height: a purely vh-sized ring outgrows a
-     narrow viewport. */
-  .hx-reticle { height: min(32vh, 48vw); }
+  /* Padded at the top by roughly the height of the readout strip, so the
+     sphere centres in what is left rather than behind it. There is no room
+     at this width to put the readouts beside the sphere instead. */
+  .hx-stage { height: 62vh; min-height: 400px; padding-top: 6.5rem; }
   .hx-core h1 { letter-spacing: 0.32em; text-indent: 0.32em; }
 
   /* The top strip already carries the note and link counts at this width, so
@@ -803,15 +764,17 @@ a:hover { color: var(--hx-text); border-color: var(--hx-line-active); }
 /* Provenance, along the foot of the stage: when the vault was last read, how
    long that read took, how long this page has been open. The dimmest type on
    the screen, because none of it is worth reading unless you went looking. */
+/*
+ * Sits on the console rail rather than inside the stage. The stage is the
+ * sphere now, edge to edge, and dim text over a field of points is text
+ * nobody can read.
+ */
 .hx-tech-strip {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
   display: flex;
   justify-content: center;
   align-items: center;
   gap: 0.75rem;
+  margin-bottom: var(--hx-gap-lg);
   pointer-events: none;
 }
 

@@ -96,9 +96,15 @@ describe('public/helix.css', () => {
   });
 
   it('styles the stage the main screen is built around', () => {
-    for (const rule of ['.hx-stage', '.hx-reticle', '.hx-hud', '.hx-core', '.hx-signal']) {
+    for (const rule of ['.hx-stage', '.hx-hud', '.hx-core', '.hx-signal']) {
       expect(css).toContain(rule);
     }
+  });
+
+  it('draws no ring around the sphere', () => {
+    // The shell is the whole composition; a ring around it was furniture.
+    // Pinned because it is easy to reintroduce one by habit.
+    expect(css).not.toContain('.hx-reticle');
   });
 
   it('keeps the three HUD tiers visually distinct', () => {
@@ -112,6 +118,11 @@ describe('public/helix.css', () => {
 
 describe('public/galaxy.js', () => {
   const galaxy = readFileSync(join(PUBLIC, 'galaxy.js'), 'utf8');
+
+  it('sizes the shell from the canvas, not from a ring that no longer exists', () => {
+    expect(galaxy).toContain('function shellRadius()');
+    expect(galaxy).not.toContain('reticle');
+  });
 
   it('keeps a ceiling on everything it draws', () => {
     // The renderer's cost is bounded by these, not by how large a vault gets.

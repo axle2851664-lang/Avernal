@@ -49,9 +49,7 @@
 
   /* ------------------------------------------------------------ the galaxy */
 
-  var view = window.HelixGalaxy
-    ? window.HelixGalaxy.mount(el('galaxy'), document.querySelector('.hx-reticle'))
-    : null;
+  var view = window.HelixGalaxy ? window.HelixGalaxy.mount(el('galaxy')) : null;
 
   function plural(n, word) { return n + ' ' + word + (n === 1 ? '' : 's'); }
 
