@@ -1,5 +1,6 @@
 import express from 'express';
 import type { Request, Response } from 'express';
+import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { GmailSync, type Email } from '../integrations/gmail.js';
@@ -9,6 +10,15 @@ import { TokenStore } from './token-store.js';
 import { isLoopback, requireToken } from './auth.js';
 import { draftCapture } from '../core/galaxy/capture.js';
 import { buildGalaxy } from '../core/galaxy/graph.js';
+import {
+  buildContext,
+  describeState,
+  MemoryRefused,
+  MemoryStore,
+  planRequest,
+  MEMORY_CATEGORIES,
+  type MemoryCategory,
+} from '../core/brain/index.js';
 import { existingCaptureSlugs, scanVault, writeCapture } from '../platform/vault/index.js';
 import dotenv from 'dotenv';
 
@@ -445,6 +455,178 @@ app.get('/galaxy', async (_req: Request, res: Response) => {
   } catch (error) {
     res.status(500).json({ error: 'Failed to read the galaxy', details: String(error) });
   }
+});
+
+/* ------------------------------------------------------------------ brain */
+
+/*
+ * The intelligence layer, exposed so the UI can show and manage what Helix
+ * remembers. Reads are plain GETs; anything that writes says what it did and
+ * why it refused when it refuses.
+ *
+ * These sit behind the same token and private-network checks as everything
+ * else on this server, because memory is at least as personal as mail.
+ */
+
+// One store for the process, beside the vault under the same data root, so it
+// travels with everything else Helix accumulates.
+const memory = new MemoryStore(DATA_ROOT);
+
+// The session this server process represents. Short-term memory is scoped to
+// it, so restarting Helix clears the short-term layer and nothing else.
+const SESSION_ID = randomUUID();
+const SESSION_STARTED_AT = new Date().toISOString();
+let currentProjectId: string | null = null;
+
+function isCategory(value: unknown): value is MemoryCategory {
+  return typeof value === 'string' && (MEMORY_CATEGORIES as readonly string[]).includes(value);
+}
+
+/** Turns a refusal into a 422 and anything else into a 500. */
+function sendMemoryError(res: Response, error: unknown): void {
+  if (error instanceof MemoryRefused) {
+    res.status(422).json({ error: error.message, refused: true });
+    return;
+  }
+  res.status(500).json({ error: 'Memory operation failed', details: String(error) });
+}
+
+app.get('/brain/state', (_req: Request, res: Response) => {
+  res.json(
+    describeState(memory, {
+      sessionId: SESSION_ID,
+      startedAt: SESSION_STARTED_AT,
+      currentProjectId,
+      plan: null,
+    })
+  );
+});
+
+app.get('/brain/memory', (req: Request, res: Response) => {
+  const category = req.query.category;
+  if (category !== undefined && !isCategory(category)) {
+    return res.status(400).json({ error: 'Unknown memory category' });
+  }
+
+  res.json({
+    memories: memory.search({
+      ...(isCategory(category) ? { category } : {}),
+      ...(typeof req.query.project === 'string' ? { projectId: req.query.project } : {}),
+      ...(typeof req.query.q === 'string' ? { text: req.query.q } : {}),
+    }),
+    counts: memory.counts(),
+  });
+});
+
+app.post('/brain/memory', (req: Request, res: Response) => {
+  const body = req.body as Record<string, unknown>;
+
+  if (!isCategory(body.category)) {
+    return res.status(400).json({ error: 'A memory needs one of: ' + MEMORY_CATEGORIES.join(', ') });
+  }
+  if (typeof body.text !== 'string' || typeof body.reason !== 'string') {
+    return res.status(400).json({ error: 'A memory needs text and a reason' });
+  }
+
+  try {
+    // Anything arriving over HTTP was asked for by whoever sent it. Helix does
+    // not get to claim an observation and bypass the rule that keeps
+    // unrequested things out of durable memory.
+    res.json({
+      success: true,
+      memory: memory.remember({
+        category: body.category,
+        text: body.text,
+        reason: body.reason,
+        source: { origin: 'user-command', detail: 'brain API' },
+        projectId: typeof body.projectId === 'string' ? body.projectId : null,
+        sessionId: body.category === 'short-term' ? SESSION_ID : null,
+        tags: Array.isArray(body.tags) ? body.tags.filter((t): t is string => typeof t === 'string') : [],
+      }),
+    });
+  } catch (error) {
+    sendMemoryError(res, error);
+  }
+});
+
+app.patch('/brain/memory/:id', (req: Request, res: Response) => {
+  const body = req.body as Record<string, unknown>;
+  const id = String(req.params.id ?? '');
+
+  try {
+    res.json({
+      success: true,
+      memory: memory.edit(id, {
+        ...(typeof body.text === 'string' ? { text: body.text } : {}),
+        ...(typeof body.reason === 'string' ? { reason: body.reason } : {}),
+        ...(isCategory(body.category) ? { category: body.category } : {}),
+        ...(typeof body.projectId === 'string' || body.projectId === null
+          ? { projectId: body.projectId as string | null }
+          : {}),
+        ...(typeof body.taskState === 'string'
+          ? { taskState: body.taskState as 'open' | 'blocked' | 'done' | 'abandoned' }
+          : {}),
+      }),
+    });
+  } catch (error) {
+    sendMemoryError(res, error);
+  }
+});
+
+app.delete('/brain/memory/:id', (req: Request, res: Response) => {
+  const removed = memory.forget(String(req.params.id ?? ''));
+  if (!removed) return res.status(404).json({ error: 'No memory with that id' });
+  res.json({ success: true });
+});
+
+/*
+ * Clearing memory. The category has to be named explicitly, and clearing
+ * everything needs `all: true` rather than an omitted field: forgetting the
+ * lot should not be what happens when a parameter goes missing.
+ */
+app.post('/brain/memory/clear', (req: Request, res: Response) => {
+  const body = req.body as Record<string, unknown>;
+
+  if (body.all === true) {
+    return res.json({ success: true, removed: memory.clear(), scope: 'all' });
+  }
+  if (!isCategory(body.category)) {
+    return res
+      .status(400)
+      .json({ error: 'Name a category to clear, or pass all: true to clear everything' });
+  }
+  res.json({ success: true, removed: memory.clear(body.category), scope: body.category });
+});
+
+app.post('/brain/context', (req: Request, res: Response) => {
+  const body = req.body as Record<string, unknown>;
+  if (typeof body.utterance !== 'string') {
+    return res.status(400).json({ error: 'Missing utterance' });
+  }
+
+  const context = buildContext(memory, body.utterance, {
+    sessionId: SESSION_ID,
+    currentProjectId,
+  });
+
+  // The resolved project becomes current, which is what lets a later bare
+  // "continue" mean the same thing this sentence did.
+  if (context.projectId !== null) currentProjectId = context.projectId;
+
+  res.json(context);
+});
+
+app.post('/brain/plan', (req: Request, res: Response) => {
+  const body = req.body as Record<string, unknown>;
+  if (typeof body.request !== 'string') {
+    return res.status(400).json({ error: 'Missing request' });
+  }
+
+  // Planning only. Nothing here runs a step, and steps that would reach
+  // outside this machine come back marked awaiting-confirmation.
+  res.json(
+    planRequest(body.request, { projects: memory.projects(), currentProjectId })
+  );
 });
 
 // Health check
