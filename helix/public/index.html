@@ -8,157 +8,115 @@
 <link rel="stylesheet" href="/helix.css" />
 </head>
 <body>
-<main class="hx-shell">
-  <header class="hx-head">
-    <div class="hx-head__mark">
+<main class="hx-shell hx-main">
+
+  <div class="hx-stage">
+    <div class="hx-reticle" aria-hidden="true"></div>
+
+    <div class="hx-core">
       <h1>Helix</h1>
-      <span class="hx-head__rule" aria-hidden="true"></span>
+      <p class="hx-core__sub" id="core-sub">Reading vault</p>
     </div>
-    <p class="hx-sub">Served from the same origin as the API, so nothing here depends on cross-origin access.</p>
-  </header>
 
-  <nav class="hx-tabs">
-    <button class="hx-tab active" data-panel="note-panel">Note</button>
-    <button class="hx-tab" data-panel="gen-panel">Generate</button>
-  </nav>
+    <!-- The galaxy. Decorative to a screen reader: every number it encodes is
+         also written out in the readouts below, which are real text. -->
+    <canvas id="galaxy" aria-hidden="true"></canvas>
 
-  <section class="hx-panel" id="note-panel">
-    <label class="hx-label" for="note">Note</label>
-    <textarea class="hx-field" id="note" placeholder="Anything you want to remember."></textarea>
-    <div class="hx-row">
-      <button class="hx-btn" id="save">Save to vault</button>
-    </div>
-    <div class="hx-status" id="note-status"></div>
-  </section>
-
-  <section class="hx-panel" id="gen-panel" hidden>
-    <label class="hx-label" for="prompt">Prompt</label>
-    <textarea class="hx-field" id="prompt" placeholder="a lighthouse on a cliff at dusk">a lighthouse on a cliff at dusk</textarea>
-
-    <div class="hx-row">
-      <div>
-        <label class="hx-label" for="mode">Type</label>
-        <select class="hx-field" id="mode">
-          <option value="image">Image</option>
-          <option value="video">Video (GIF)</option>
-        </select>
+    <div class="hx-hud">
+      <div class="hx-hud__corner hx-hud__corner--tl">
+        <span class="hx-readout">
+          <span class="hx-readout__key">Vault</span>
+          <span class="hx-readout__value" id="hud-nodes">—</span>
+        </span>
+        <span class="hx-readout">
+          <span class="hx-readout__key">Links</span>
+          <span class="hx-readout__value" id="hud-links">—</span>
+        </span>
+        <span class="hx-readout">
+          <span class="hx-readout__key">Clusters</span>
+          <span class="hx-readout__value" id="hud-groups">—</span>
+        </span>
       </div>
-      <div>
-        <label class="hx-label" for="steps">Steps</label>
-        <input class="hx-field" id="steps" type="number" value="20" min="1" max="100" />
-      </div>
-      <div>
-        <label class="hx-label" for="seed">Seed — blank is random</label>
-        <input class="hx-field" id="seed" type="number" placeholder="random" />
-      </div>
-    </div>
 
-    <div class="hx-row">
-      <button class="hx-btn" id="go">Generate</button>
+      <div class="hx-hud__corner hx-hud__corner--tr">
+        <span class="hx-readout">
+          <span class="hx-readout__key">Local time</span>
+          <span class="hx-readout__value" id="hud-clock">—</span>
+        </span>
+        <span class="hx-readout">
+          <span class="hx-readout__key">Origin</span>
+          <span class="hx-readout__value hx-readout__value--sm" id="hud-origin">—</span>
+        </span>
+      </div>
+
+      <div class="hx-hud__corner hx-hud__corner--bl">
+        <span class="hx-readout__key">Subsystems</span>
+        <span class="hx-signal" id="sig-gmail" data-state="unknown">Gmail</span>
+        <span class="hx-signal" id="sig-youtube" data-state="unknown">YouTube</span>
+        <span class="hx-signal" id="sig-generators" data-state="unknown">Generators</span>
+      </div>
+
+      <div class="hx-hud__corner hx-hud__corner--br">
+        <span class="hx-readout">
+          <span class="hx-readout__key">Link</span>
+          <span class="hx-readout__value hx-readout__value--sm" id="hud-link">Connecting</span>
+        </span>
+        <span class="hx-readout">
+          <span class="hx-readout__key">Network</span>
+          <span class="hx-readout__value hx-readout__value--sm">Private only</span>
+        </span>
+      </div>
     </div>
-    <div class="hx-status" id="status"></div>
-    <div class="hx-result" id="result"></div>
-  </section>
+  </div>
+
+  <div class="hx-console">
+    <nav class="hx-tabs">
+      <button class="hx-tab active" data-panel="note-panel">Note</button>
+      <button class="hx-tab" data-panel="gen-panel">Generate</button>
+    </nav>
+
+    <section class="hx-panel" id="note-panel">
+      <label class="hx-label" for="note">Capture to vault</label>
+      <textarea class="hx-field" id="note" placeholder="Anything you want to remember."></textarea>
+      <div class="hx-row">
+        <button class="hx-btn" id="save">Save to vault</button>
+      </div>
+      <div class="hx-status" id="note-status"></div>
+    </section>
+
+    <section class="hx-panel" id="gen-panel" hidden>
+      <label class="hx-label" for="prompt">Prompt</label>
+      <textarea class="hx-field" id="prompt" placeholder="a lighthouse on a cliff at dusk">a lighthouse on a cliff at dusk</textarea>
+
+      <div class="hx-row">
+        <div>
+          <label class="hx-label" for="mode">Type</label>
+          <select class="hx-field" id="mode">
+            <option value="image">Image</option>
+            <option value="video">Video (GIF)</option>
+          </select>
+        </div>
+        <div>
+          <label class="hx-label" for="steps">Steps</label>
+          <input class="hx-field" id="steps" type="number" value="20" min="1" max="100" />
+        </div>
+        <div>
+          <label class="hx-label" for="seed">Seed — blank is random</label>
+          <input class="hx-field" id="seed" type="number" placeholder="random" />
+        </div>
+      </div>
+
+      <div class="hx-row">
+        <button class="hx-btn" id="go">Generate</button>
+      </div>
+      <div class="hx-status" id="status"></div>
+      <div class="hx-result" id="result"></div>
+    </section>
+  </div>
+
 </main>
 
-<script>
-  const el = (id) => document.getElementById(id);
-
-  document.querySelectorAll('.hx-tab').forEach((tab) => {
-    tab.addEventListener('click', () => {
-      document.querySelectorAll('.hx-tab').forEach((t) => t.classList.toggle('active', t === tab));
-      for (const id of ['note-panel', 'gen-panel']) el(id).hidden = id !== tab.dataset.panel;
-    });
-  });
-
-  el('save').addEventListener('click', async () => {
-    const text = el('note').value.trim();
-    const out = el('note-status');
-    const show = (msg, bad) => { out.textContent = msg; out.classList.toggle('error', Boolean(bad)); };
-
-    if (!text) { show('Write something first.', true); return; }
-
-    el('save').disabled = true;
-    show('Saving...');
-    try {
-      const res = await fetch('/notes', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
-      });
-      const data = await res.json();
-      if (!res.ok) { show(data.details || data.error || 'Could not save.', true); return; }
-      show('Saved as "' + data.title + '".');
-      el('note').value = '';
-    } catch (err) {
-      show('Could not reach the server: ' + err.message, true);
-    } finally {
-      el('save').disabled = false;
-    }
-  });
-  const status = el('status');
-  const result = el('result');
-
-  function setStatus(text, isError) {
-    status.textContent = text;
-    status.classList.toggle('error', Boolean(isError));
-  }
-
-  el('go').addEventListener('click', async () => {
-    const prompt = el('prompt').value.trim();
-    if (!prompt) {
-      setStatus('Enter a prompt first.', true);
-      return;
-    }
-
-    const mode = el('mode').value;
-    const steps = Number(el('steps').value) || undefined;
-    const seedRaw = el('seed').value.trim();
-
-    const body = { prompt };
-    if (steps !== undefined) body.steps = steps;
-    if (seedRaw !== '') body.seed = Number(seedRaw);
-
-    el('go').disabled = true;
-    result.innerHTML = '';
-    setStatus(
-      'Generating. The first run downloads about 5GB of model weights, and on CPU a single image takes several minutes.'
-    );
-
-    try {
-      const res = await fetch('/generate/' + mode, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      const data = await res.json();
-
-      if (!res.ok || data.success === false) {
-        setStatus(data.details || data.error || 'Generation failed.', true);
-        return;
-      }
-
-      setStatus('Done in ' + (data.device || 'unknown') + ' mode.');
-      const img = document.createElement('img');
-      // Cache-bust so regenerating with the same seed does not show the old file.
-      img.src = data.url + '?t=' + Date.now();
-      img.alt = data.prompt || prompt;
-      result.appendChild(img);
-
-      const meta = document.createElement('div');
-      meta.className = 'hx-meta';
-      meta.textContent = 'seed ' + data.seed + ' · ';
-      const link = document.createElement('a');
-      link.href = data.url;
-      link.textContent = data.filename;
-      meta.appendChild(link);
-      result.appendChild(meta);
-    } catch (err) {
-      setStatus('Could not reach the server: ' + err.message, true);
-    } finally {
-      el('go').disabled = false;
-    }
-  });
-</script>
+<script src="/galaxy.js"></script>
+<script src="/app.js"></script>
 </body>
 </html>

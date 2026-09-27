@@ -8,7 +8,8 @@ import { generateImage, generateVideo } from '../integrations/generators.js';
 import { TokenStore } from './token-store.js';
 import { isLoopback, requireToken } from './auth.js';
 import { draftCapture } from '../core/galaxy/capture.js';
-import { existingCaptureSlugs, writeCapture } from '../platform/vault/index.js';
+import { buildGalaxy } from '../core/galaxy/graph.js';
+import { existingCaptureSlugs, scanVault, writeCapture } from '../platform/vault/index.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -410,6 +411,39 @@ app.post('/ingest/message', async (req: Request, res: Response) => {
     res.json({ success: true, ...(await saveNote(text, origin)) });
   } catch (error) {
     res.status(500).json({ error: 'Failed to save message', details: String(error) });
+  }
+});
+
+/**
+ * The galaxy as the UI needs to draw it.
+ *
+ * Read-only, and a projection rather than a dump: labels, groups and edges go
+ * out, note bodies and excerpts do not. The visualisation has no use for the
+ * text, and this endpoint is reachable from every device on the private
+ * network, so the less of the vault it hands over the better.
+ *
+ * An empty vault is not an error. A first run has no notes yet, and the UI has
+ * to be able to say so rather than show a failure.
+ */
+app.get('/galaxy', async (_req: Request, res: Response) => {
+  try {
+    const notes = await scanVault(VAULT_ROOT).catch((error: NodeJS.ErrnoException) => {
+      // The vault directory is created on first write, so its absence before
+      // then is the normal state, not a fault.
+      if (error.code === 'ENOENT') return [];
+      throw error;
+    });
+
+    const galaxy = buildGalaxy(notes);
+    const groups = [...new Set(galaxy.nodes.map((node) => node.group))].sort();
+
+    res.json({
+      nodes: galaxy.nodes.map((node) => ({ id: node.id, label: node.label, group: node.group })),
+      links: galaxy.links,
+      groups,
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to read the galaxy', details: String(error) });
   }
 });
 
