@@ -251,6 +251,11 @@
     var angle = 0;
     var clock = 0;
     var scan = 0;
+    // How hard the shell is working, 0 to 1, and the value easing toward it.
+    // Set from outside when Helix is listening or thinking; eased rather than
+    // switched so the change reads as the sphere leaning in, not as a jump.
+    var activity = 0;
+    var activityTarget = 0;
     var tilt = 0;
     var tiltTarget = 0;
     var width = 0;
@@ -560,14 +565,19 @@
     var order = [];
 
     function advance(dt) {
-      angle += dt * TURN_PER_MS;
+      activity += (activityTarget - activity) * 0.05;
+
+      // At full activity the shell turns half again as fast and the pulses
+      // run at double. Both are multiplications already in the loop, so this
+      // costs nothing measurable — it is the same frame, slightly quicker.
+      angle += dt * TURN_PER_MS * (1 + activity * 0.5);
       clock += dt;
-      scan += dt * SCAN_PER_MS;
+      scan += dt * SCAN_PER_MS * (1 + activity);
       // Ease toward the pointer rather than snapping to it.
       tilt += (tiltTarget - tilt) * 0.08;
 
       for (var i = 0; i < pulses.length; i += 1) {
-        pulses[i].t += dt * PULSE_PER_MS;
+        pulses[i].t += dt * PULSE_PER_MS * (1 + activity);
         if (pulses[i].t >= 1) reseat(pulses[i]);
       }
     }
@@ -659,6 +669,18 @@
         marked = typeof id === 'number' && id >= 0 && id < points.length ? id : -1;
         draw();
         return marked;
+      },
+
+      /**
+       * How hard the shell should look like it is working, 0 to 1.
+       *
+       * Eased in the loop, so calling this is only a target change. Under
+       * reduced motion there is no loop to ease it, and the shell is
+       * deliberately left alone rather than redrawn at a new speed.
+       */
+      setActivity: function (level) {
+        activityTarget = Math.max(0, Math.min(1, Number(level) || 0));
+        return activityTarget;
       },
 
       /** Replace what is drawn. Safe to call repeatedly. */

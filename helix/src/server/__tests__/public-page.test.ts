@@ -31,15 +31,16 @@ describe('public/index.html', () => {
       'sheet',
       'sheet-title',
       'sheet-close',
-      // The stage, and the one line of state on it. core-sub is filled from a
-      // server response, so a dropped id means it silently stops updating.
+      // The stage, the one line of state on it, and the reply. Both are
+      // written from script, so a dropped id means the screen silently stops
+      // saying anything.
       'galaxy',
-      'core-sub',
-      'sig-gmail',
-      'sig-youtube',
-      'sig-generators',
-      'sig-voice',
-      'sig-mind',
+      'stage',
+      'core-state',
+      'reply',
+      // One status dot, and the two ways in.
+      'system',
+      'mic',
       // The in-flight indicator.
       'activity',
       // Command console.
@@ -63,11 +64,36 @@ describe('public/index.html', () => {
   });
 
   it('carries nothing on the wall that is not measured or a control', () => {
-    // The readouts, clock, origin, latency and uptime moved into ACTIVITY.
-    // Reintroducing one means reintroducing a line of text nobody asked for.
-    for (const gone of ['hud-nodes', 'hud-clock', 'tech-uptime', 'hx-frame', 'hx-sweep']) {
+    // The readouts, clock, origin, latency, uptime and the five subsystem
+    // dots all moved into ACTIVITY. Reintroducing one means reintroducing a
+    // line of text nobody asked for.
+    for (const gone of ['hud-nodes', 'hud-clock', 'tech-uptime', 'hx-frame', 'sig-gmail']) {
       expect(page).not.toContain(gone);
     }
+  });
+
+  it('keeps the screen to one focal point and two controls', () => {
+    // The brief for this screen, pinned: a sphere, a wordmark, a line, a dot,
+    // and exactly two ways in. Every button added here is a button on an
+    // otherwise empty screen, so the count is the constraint.
+    const stage = page.slice(
+      page.indexOf('<div class="hx-stage"'),
+      page.indexOf('<!-- The controls.')
+    );
+    expect([...stage.matchAll(/<button/g)]).toHaveLength(2);
+    expect(stage).toContain('id="mic"');
+    expect(stage).toContain('id="cmd-open"');
+  });
+
+  it('gives every element a distinct id', () => {
+    // A duplicate id does not error anywhere: getElementById simply returns
+    // the first one, and two unrelated features quietly write to the same
+    // element. This caught exactly that — a HUD dot named "status" over the
+    // generate panel's own status line.
+    const ids = [...page.matchAll(/\bid="([^"]+)"/g)].map((m) => m[1] ?? '');
+    const seen = new Set<string>();
+    const duplicated = ids.filter((id) => (seen.has(id) ? true : (seen.add(id), false)));
+    expect(duplicated).toEqual([]);
   });
 
   it('loads the shared stylesheet rather than inlining its own look', () => {
@@ -116,8 +142,9 @@ describe('public/helix.css', () => {
   it('keeps the two remaining HUD tiers visually distinct', () => {
     // State and subsystem are all that is left on the screen, and they have to
     // differ in weight or the hierarchy is only in the markup.
-    expect(css).toContain('.hx-core__sub {');
+    expect(css).toContain('.hx-core__state {');
     expect(css).toContain('.hx-signal {');
+    expect(css).toContain('.hx-reply {');
   });
 
   it('carries no styles for furniture the screen no longer has', () => {

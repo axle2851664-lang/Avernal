@@ -1,13 +1,19 @@
 /*
  * Main screen wiring.
  *
- * Two jobs: keep the one line of state under the wordmark honest, and run the
- * note and generate controls. The controls behave exactly as they did before
- * the screen was stripped back — same endpoints, same payloads, same messages.
+ * Three jobs: keep the one line of state under the wordmark honest, run the
+ * voice control, and run the note and generate controls. The controls behave
+ * exactly as they did before the screen was stripped back — same endpoints,
+ * same payloads, same messages.
  *
  * Everything the old HUD showed on the wall — counts, clock, round trip, how
- * long the page has been open — is still measured here and still reported, by
- * the ACTIVITY command. It is kept off the screen, not thrown away.
+ * long the page has been open, the five subsystem dots — is still measured
+ * here and still reported, by the ACTIVITY command. It is kept off the
+ * screen, not thrown away.
+ *
+ * The screen says one thing at a time. What Helix is doing goes in the state
+ * line; what he said goes in the reply, which leaves again once it has been
+ * read. Nothing else is permanent.
  */
 (function () {
   'use strict';
@@ -37,17 +43,89 @@
 
   function plural(n, word) { return n + ' ' + word + (n === 1 ? '' : 's'); }
 
-  /**
-   * The one line of state on the screen.
+  /* --------------------------------------------------------- what he is doing */
+
+  /*
+   * One line, one state.
    *
-   * It answers the only two questions the screen has to answer without being
-   * asked: is Helix reading the vault, and what is in it.
+   * Idle is the resting line — what the vault read last said, or that it could
+   * not be read. Every other state is transient and says only itself: a screen
+   * that shows "listening", "thinking" and "ready" at the same time is telling
+   * you about its own markup rather than about Helix.
    */
-  function setSub(text, fault) {
-    var sub = el('core-sub');
-    sub.textContent = text;
-    sub.classList.toggle('is-fault', Boolean(fault));
+  var TRANSIENT = { listening: 'Listening', thinking: 'Thinking', speaking: 'Speaking' };
+
+  var state = 'idle';
+  var resting = 'Reading vault';
+  var restingFault = false;
+
+  function paintState() {
+    var line = el('core-state');
+    var text = state === 'idle' ? resting : TRANSIENT[state] || resting;
+    if (line.textContent !== text) line.textContent = text;
+    line.classList.toggle('is-fault', state === 'idle' && restingFault);
+    el('stage').dataset.state = state;
+
+    // The sphere leans in while he is working. One multiplier, eased — it
+    // costs nothing per frame and it is the only thing on screen that says
+    // "busy" without adding a word to it.
+    if (view !== null && typeof view.setActivity === 'function') {
+      view.setActivity(state === 'thinking' || state === 'listening' ? 1 : 0);
+    }
   }
+
+  /** Move to a state. Anything but idle is expected to end. */
+  function setState(next) {
+    if (state === next) return;
+    state = next;
+    paintState();
+  }
+
+  /** The line shown whenever nothing is happening. */
+  function setResting(text, fault) {
+    resting = text;
+    restingFault = Boolean(fault);
+    paintState();
+  }
+
+  /* ------------------------------------------------------------- the reply */
+
+  var replyTimer = 0;
+
+  /**
+   * Show what he said, then let it go.
+   *
+   * The dismissal is on a timer rather than permanent because the resting
+   * screen is the point: a reply that stays until the next one turns the
+   * centre of the screen into a log. Reading time is estimated from length,
+   * with a floor, and a click or Escape cuts it short.
+   */
+  function showReply(text, note) {
+    el('reply-text').textContent = text;
+    el('reply-note').textContent = note || '';
+    el('reply-note').hidden = !note;
+    el('reply').hidden = false;
+    // The state line and the reply say the same thing in different words, so
+    // only one of them is ever up. The reply wins: it is the answer.
+    el('core-state').hidden = true;
+
+    window.clearTimeout(replyTimer);
+    var words = text.split(/\s+/).length;
+    replyTimer = window.setTimeout(clearReply, Math.min(45000, Math.max(7000, words * 420)));
+  }
+
+  function clearReply() {
+    window.clearTimeout(replyTimer);
+    var reply = el('reply');
+    el('core-state').hidden = false;
+    if (reply.hidden) return false;
+    reply.hidden = true;
+    el('reply-text').textContent = '';
+    el('reply-note').textContent = '';
+    return true;
+  }
+
+  el('reply').addEventListener('click', clearReply);
 
   // The last successful reads, kept so the command console can answer from
   // what the page already has instead of going back to the server.
@@ -69,12 +147,7 @@
         lastLatency = Math.round(window.performance.now() - started);
         lastSyncAt = new Date();
         lastGalaxy = galaxy;
-        setSub(
-          galaxy.nodes.length === 0
-            ? 'Vault empty'
-            : plural(galaxy.nodes.length, 'note') + ' · ' + plural(galaxy.links.length, 'link'),
-          false
-        );
+        setResting(galaxy.nodes.length === 0 ? 'Vault empty' : 'System ready', false);
 
         // Drawing is caught separately. A fault in the visualisation is not a
         // fault in the vault, and reporting it as one would send someone
@@ -91,14 +164,33 @@
         // No count is shown rather than one that is not true. The last sync
         // time is left alone, because it is still the last time this page did
         // read the vault.
-        setSub('Vault unreadable', true);
+        setResting('Vault unreadable', true);
         lastLatency = null;
         console.warn('Could not read the galaxy:', err.message);
       })
       .then(function () { busy(-1); });
   }
 
-  /* --------------------------------------------------------- subsystem HUD */
+  /* ------------------------------------------------------------ the system */
+
+  /**
+   * The one status indicator: a dot, a word, and the detail on hover.
+   *
+   * The word does not repeat the name — the wordmark is directly above it —
+   * it says whether the server is answering, which is the only thing a single
+   * dot can honestly carry.
+   *
+   * Named for what it reports rather than called setStatus, because the
+   * generate panel already has a setStatus and an element called status. Two
+   * of either is one too many: the id collision had the generate panel's
+   * messages landing in this dot.
+   */
+  function setSystem(state, label, detail) {
+    var node = el('system');
+    node.dataset.state = state;
+    node.textContent = label;
+    node.title = detail;
+  }
 
   function loadHealth() {
     return fetch('/health')
@@ -106,24 +198,19 @@
       .then(function (health) {
         lastHealth = health;
         var services = health.services || {};
-        var states = {
-          'sig-gmail': services.gmail === 'authenticated',
-          'sig-youtube': services.youtube === 'authenticated',
-          'sig-generators': services.generators === 'available',
-          'sig-voice': services.voice === 'available',
-          'sig-mind': services.mind === 'available',
-        };
-        for (var id in states) {
-          if (Object.prototype.hasOwnProperty.call(states, id)) {
-            el(id).dataset.state = states[id] ? 'on' : 'off';
-          }
-        }
+
+        // One dot for the whole system. Five dots and five words was a
+        // readout nobody was reading; the breakdown still exists, in
+        // ACTIVITY, where you go when you actually want it. The title is
+        // there so it is one hover away rather than one command away.
+        setSystem('on', 'Online', Object.keys(services)
+          .map(function (name) { return name + ': ' + services[name]; })
+          .join('\n'));
       })
       .catch(function () {
-        // Unknown is its own state: an unreachable server is not the same as a
-        // subsystem reporting that it is disconnected.
-        var ids = ['sig-gmail', 'sig-youtube', 'sig-generators', 'sig-voice', 'sig-mind'];
-        for (var i = 0; i < ids.length; i += 1) el(ids[i]).dataset.state = 'fault';
+        // Unknown is its own state: an unreachable server is not the same as
+        // a subsystem reporting that it is disconnected.
+        setSystem('fault', 'Offline', 'The server did not answer.');
       });
   }
 
@@ -175,8 +262,12 @@
   // close the sheet out from under it.
   document.addEventListener('keydown', function (event) {
     if (event.key !== 'Escape') return;
+    // The console owns Escape while it is open. Under it, one layer comes off
+    // per press, outermost first, so Escape always means "the thing in front
+    // of me" rather than "everything".
     if (!el('cmd').hidden) return;
-    if (hideSheet()) event.preventDefault();
+    if (listening) { stopListening(); event.preventDefault(); return; }
+    if (hideSheet() || clearReply()) event.preventDefault();
   });
 
   /* ----------------------------------------------------------------- notes */
@@ -288,6 +379,12 @@
   // playing, and Helix talking over himself is not the joke.
   var player = new Audio();
 
+  // play() resolves when playback starts, not when it ends, so the end of the
+  // spoken line has to come from the element itself. Without this the screen
+  // drops out of "speaking" while he is still talking.
+  player.addEventListener('ended', function () { setState('idle'); });
+  player.addEventListener('error', function () { setState('idle'); });
+
   function speak(text) {
     busy(1);
     return fetch('/voice/speak', {
@@ -328,7 +425,39 @@
    * speak never loses the answer — the words are the point, the voice is the
    * delivery.
    */
+  /**
+   * The small print under an answer: what was kept, and where it came from.
+   *
+   * Nothing is stored quietly — that rule is only real if the keeping is
+   * visible, and the console used to be where it showed. The answer is on the
+   * main screen now, so this is too.
+   */
+  function provenance(body) {
+    var parts = [];
+    (body.remembered || []).forEach(function (item) {
+      parts.push('Kept (' + item.category + '): ' + item.text);
+    });
+    (body.notRemembered || []).forEach(function (why) {
+      parts.push('Not kept: ' + why);
+    });
+    if (body.sources && body.sources.length > 0) {
+      parts.push(
+        'From ' +
+          body.sources
+            .map(function (source) { return source.label; })
+            .filter(function (label) { return label !== null; })
+            .join(', ')
+      );
+    } else if (body.grounded === false && body.answer) {
+      parts.push('Not from your notes');
+    }
+    if (body.voiceError) parts.push('Not spoken: ' + body.voiceError);
+    return parts.join(' · ');
+  }
+
   function ask(question) {
+    setState('thinking');
+    clearReply();
     busy(1);
     return fetch('/ask', {
       method: 'POST',
@@ -343,20 +472,137 @@
       })
       .then(function (body) {
         busy(-1);
+
+        // On screen whether or not it can be spoken. The words are the
+        // answer; the voice is only the delivery.
+        if (typeof body.answer === 'string' && body.answer !== '') {
+          showReply(body.answer, provenance(body));
+        } else if (typeof body.answerUnavailable === 'string') {
+          showReply(body.answerUnavailable, provenance(body));
+        }
+
         // Nothing to say is not something to say: a kept memory with no
         // answer behind it must not become an utterance.
         if (body.canSpeak && typeof body.answer === 'string' && body.answer !== '') {
+          setState('speaking');
           return speak(body.answer).then(
             function () { return body; },
             function (err) {
               // Said but not spoken is still said.
+              setState('idle');
               return Object.assign({}, body, { voiceError: err.message });
             }
           );
         }
+        setState('idle');
         return body;
       })
-      .catch(function (err) { busy(-1); throw err; });
+      .catch(function (err) {
+        busy(-1);
+        // Reported here rather than left to the caller: the answer shows on
+        // this screen, so the failure to produce one belongs on it too.
+        showReply('That failed. ' + err.message);
+        setState('idle');
+        throw err;
+      });
+  }
+
+  /* ------------------------------------------------------------- listening */
+
+  /*
+   * The voice control.
+   *
+   * Speech recognition is the browser's own — no library, no key, no audio
+   * leaving the page except through whatever the browser already does. Where
+   * it is missing the control says so and stays put: a dead button that
+   * explains itself is better than one that silently does nothing, and better
+   * than none at all when the question is "can Helix hear me".
+   */
+  var Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  var listener = null;
+  var listening = false;
+
+  // What the recognition API's error codes actually mean, in words. The codes
+  // themselves are no use to anyone standing in front of the screen.
+  var LISTEN_ERRORS = {
+    'not-allowed': 'Microphone permission was refused.',
+    'service-not-allowed': 'This browser will not allow speech recognition here.',
+    'no-speech': 'I heard nothing.',
+    'audio-capture': 'No microphone was found.',
+    network: 'Speech recognition could not reach its service.',
+    aborted: '',
+  };
+
+  function micFault(message) {
+    var mic = el('mic');
+    mic.disabled = true;
+    mic.title = message;
+  }
+
+  function stopListening() {
+    if (listener !== null && listening) listener.stop();
+  }
+
+  function startListening() {
+    if (listener === null || listening) return;
+    try {
+      listener.start();
+    } catch (err) {
+      // start() throws if it is already running — which the flag should have
+      // caught, but the flag is set by an event and the event can be late.
+      console.warn('Could not start listening:', err.message);
+    }
+  }
+
+  if (Recognition === undefined) {
+    micFault('This browser has no speech recognition. Use Ctrl K and type.');
+  } else {
+    listener = new Recognition();
+    listener.lang = document.documentElement.lang || 'en';
+    listener.interimResults = false;
+    listener.maxAlternatives = 1;
+
+    listener.addEventListener('start', function () {
+      listening = true;
+      el('mic').setAttribute('aria-pressed', 'true');
+      clearReply();
+      setState('listening');
+    });
+
+    listener.addEventListener('result', function (event) {
+      var result = event.results[event.results.length - 1];
+      var said = result && result[0] ? result[0].transcript.trim() : '';
+      if (said === '') return;
+      // Straight to the same path the console's ASK uses. There is one
+      // implementation of asking, and speaking into it is just another way in.
+      // ask() has already put any failure on the screen; this is only here
+      // so the rejection is not unhandled.
+      ask(said).catch(function () {});
+    });
+
+    listener.addEventListener('error', function (event) {
+      var why = LISTEN_ERRORS[event.error];
+      if (why === undefined) why = 'Listening failed (' + event.error + ').';
+      if (why !== '') showReply(why);
+      // A refused permission will be refused again. Saying so once and
+      // standing down beats a button that fails identically on every press.
+      if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+        micFault(why);
+      }
+    });
+
+    listener.addEventListener('end', function () {
+      listening = false;
+      el('mic').setAttribute('aria-pressed', 'false');
+      // Only idle if nothing came of it: a result has already moved the
+      // screen on to thinking, and this event lands after it.
+      if (state === 'listening') setState('idle');
+    });
+
+    el('mic').addEventListener('click', function () {
+      if (listening) stopListening();
+      else startListening();
+    });
   }
 
   /* --------------------------------------------------------- console hooks */
@@ -389,6 +635,15 @@
     },
     speak: speak,
     ask: ask,
+    /** What the screen is showing. Reported by ACTIVITY, not inferred by it. */
+    state: function () { return state; },
+    /** Start or stop listening. Returns false when this browser cannot. */
+    listen: function (on) {
+      if (listener === null || el('mic').disabled) return false;
+      if (on === false) stopListening();
+      else startListening();
+      return true;
+    },
     focusNoteField: function () {
       showPanel('note-panel');
       el('note').focus();

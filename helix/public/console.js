@@ -115,47 +115,18 @@
           report(['Type ASK followed by your question. Or just end it with a "?".']);
           return 'stay';
         }
-        report(['Thinking\u2026']);
-        api()
-          .ask(arg)
-          .then(function (body) {
-            var lines = [];
-
-            // What was kept, said out loud. Nothing is stored quietly, and
-            // that has to be visible here or the rule is only in the code.
-            (body.remembered || []).forEach(function (item) {
-              lines.push('Remembered (' + item.category + '): ' + item.text);
-            });
-            (body.notRemembered || []).forEach(function (why) {
-              lines.push('Not remembered: ' + why);
-            });
-            if (lines.length > 0) lines.push('');
-
-            if (body.answer === null) {
-              // Kept, but he could not answer. Both facts, neither standing
-              // in for the other.
-              lines.push(body.answerUnavailable || 'No answer available.');
-              report(lines);
-              return;
-            }
-
-            lines.push(body.answer);
-            if (body.sources && body.sources.length > 0) {
-              // Which notes he used, so a wrong answer is traceable.
-              lines.push('');
-              lines.push('From: ' + body.sources.map(function (s) { return s.label; }).join(', '));
-            } else if (!body.grounded) {
-              lines.push('');
-              lines.push('Not from your notes — he was just talking.');
-            }
-            if (body.voiceError) {
-              lines.push('');
-              lines.push('(Could not speak it: ' + body.voiceError + ')');
-            }
-            report(lines);
-          })
-          .catch(function (err) { fail(err.message); });
-        return 'stay';
+        /*
+         * Fire and close.
+         *
+         * The answer, what was kept and where it came from all land on the
+         * main screen now. Printing them here as well put the same sentence
+         * on screen twice, once behind the console's own scrim — so the
+         * console gets out of the way and lets the screen answer.
+         *
+         * The rejection is swallowed because ask() has already displayed it.
+         */
+        api().ask(arg).catch(function () {});
+        return 'close';
       },
     },
     {

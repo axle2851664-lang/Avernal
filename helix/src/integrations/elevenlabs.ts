@@ -191,9 +191,11 @@ export class ElevenLabsVoice {
         body: JSON.stringify({
           text: spoken,
           model_id: this.#modelId,
-          // Leaning toward expressive: this voice has jokes to land, and a
-          // perfectly even delivery kills every one of them.
-          voice_settings: { stability: 0.4, similarity_boost: 0.75, style: 0.35 },
+          // Tuned for the character rather than for range: high stability
+          // holds an even, unhurried delivery, and style near zero keeps the
+          // model from adding emphasis the words did not ask for. Helix is
+          // meant to sound certain, not theatrical.
+          voice_settings: { stability: 0.72, similarity_boost: 0.8, style: 0.1 },
         }),
       });
     } catch (error) {

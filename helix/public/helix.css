@@ -382,13 +382,13 @@ a:hover { color: var(--hx-text); border-color: var(--hx-line-active); }
 /* ------------------------------------------------------------------- HUD */
 
 /*
- * The whole permanent information layer: which subsystems are up, and the way
- * into the console. One row along the foot of the stage.
+ * The whole permanent information layer: one status dot, and the two ways in.
+ * One row along the foot of the stage.
  *
- * It was four corner stacks of eleven readouts — counts, clock, origin, round
- * trip, uptime, network. All of it is still measured, and ACTIVITY reports it
- * on request. On the wall it meant the screen was never quiet, and a number
- * nobody is reading is just texture.
+ * It was four corner stacks of eleven readouts, then five subsystem dots. All
+ * of it is still measured, and ACTIVITY reports it on request. On the wall it
+ * meant the screen was never quiet, and a number nobody is reading is just
+ * texture.
  */
 .hx-hud {
   position: absolute;
@@ -403,10 +403,63 @@ a:hover { color: var(--hx-text); border-color: var(--hx-line-active); }
   pointer-events: none;
 }
 
-.hx-hud__signals {
+.hx-controls {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem 1.25rem;
+  align-items: center;
+  gap: 1.5rem;
+  pointer-events: auto;
+}
+
+/* Both controls read the same: a mark, a word, almost no ink. Neither should
+   pull the eye off the sphere until it is wanted. */
+.hx-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0;
+  background: none;
+  border: 0;
+  color: var(--hx-text-faint);
+  cursor: pointer;
+  font-family: var(--hx-font-mono);
+  font-size: var(--hx-label-size);
+  letter-spacing: var(--hx-label-tracking);
+  text-transform: uppercase;
+  transition: color 240ms var(--hx-ease);
+}
+
+.hx-control:hover:not(:disabled) { color: var(--hx-text); }
+
+.hx-control:focus-visible {
+  outline: 1px solid var(--hx-line-active);
+  outline-offset: 4px;
+}
+
+.hx-control:disabled { cursor: default; opacity: 0.45; }
+
+.hx-control__icon {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.2;
+  stroke-linecap: round;
+}
+
+/* The key cap on the command control, and nothing else borrowed from it. */
+.hx-control__key {
+  padding: 0.15rem 0.35rem;
+  border: 1px solid var(--hx-line);
+  font-size: 0.62rem;
+}
+
+/* Lit while the microphone is open, with the same slow pulse the status dot
+   uses — the one place on the screen that says "he is listening" without a
+   word, so it has to be unmistakable and still quiet. */
+#mic[aria-pressed='true'] { color: var(--hx-text); }
+
+#mic[aria-pressed='true'] .hx-control__icon {
+  animation: hx-pulse 2s var(--hx-ease) infinite;
 }
 
 /* A system indicator: a dot and a word. State lives in a data attribute so the
@@ -458,7 +511,10 @@ a:hover { color: var(--hx-text); border-color: var(--hx-line-active); }
   top: 50%;
   left: 50%;
   translate: -50% -50%;
+  width: min(90vw, 40rem);
   text-align: center;
+  /* The block is wide enough to hold a reply, so it must not sit between the
+     pointer and the sphere. Only the reply itself takes the pointer back. */
   pointer-events: none;
 }
 
@@ -477,8 +533,11 @@ a:hover { color: var(--hx-text); border-color: var(--hx-line-active); }
     0 0 4px rgb(0 0 0 / 90%);
 }
 
-.hx-core__sub {
+.hx-core__state {
   margin: 0.6rem 0 0;
+  /* Crossfades between states rather than swapping. Three words changing in
+     place is the whole animation budget this line gets. */
+  animation: hx-state-in 500ms var(--hx-ease);
   /* A step brighter than the corner captions, with the same dark halo: this
      one sits directly over the busiest part of the visualisation. */
   color: var(--hx-text-dim);
@@ -489,9 +548,63 @@ a:hover { color: var(--hx-text); border-color: var(--hx-line-active); }
   text-transform: uppercase;
 }
 
+@keyframes hx-state-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 /* The one place on the main screen that is allowed colour, and only to say
    the vault could not be read. */
-.hx-core__sub.is-fault { color: var(--hx-alert); }
+.hx-core__state.is-fault { color: var(--hx-alert); }
+
+/*
+ * What he said.
+ *
+ * Sits under the state line, in the reading face rather than the mono one:
+ * this is the only prose on the screen and it should not look like a readout.
+ * Narrow on purpose — a measure this short is what keeps a long answer from
+ * spanning the sphere.
+ */
+.hx-reply {
+  max-width: 34ch;
+  margin: 0 auto;
+  cursor: pointer;
+  pointer-events: auto;
+  animation: hx-reply-in 420ms var(--hx-ease);
+}
+
+.hx-reply[hidden] { display: none; }
+
+.hx-reply__text {
+  margin: var(--hx-gap) 0 0;
+  color: var(--hx-text);
+  font-size: 1rem;
+  line-height: 1.7;
+  /* Dark halo, like the wordmark: this sits over the densest part of the
+     shell and dissolves into it without one. */
+  text-shadow: 0 0 12px rgb(0 0 0 / 92%), 0 0 4px rgb(0 0 0 / 92%);
+  text-wrap: balance;
+}
+
+/* Provenance. Deliberately the dimmest type on the screen — it is there to be
+   checked, not read. */
+.hx-reply__note {
+  margin: 0.9rem 0 0;
+  color: var(--hx-text-faint);
+  font-family: var(--hx-font-mono);
+  font-size: var(--hx-label-size);
+  letter-spacing: var(--hx-label-tracking);
+  text-shadow: 0 0 10px rgb(0 0 0 / 92%);
+}
+
+.hx-reply__note[hidden] { display: none; }
+
+.hx-core__state[hidden] { display: none; }
+
+@keyframes hx-reply-in {
+  from { opacity: 0; translate: 0 6px; }
+  to { opacity: 1; translate: 0 0; }
+}
 
 /* ------------------------------------------------------------------- sheet */
 
@@ -575,17 +688,22 @@ a:hover { color: var(--hx-text); border-color: var(--hx-line-active); }
   }
 
   .hx-core h1 { letter-spacing: 0.32em; text-indent: 0.32em; }
+  .hx-reply { max-width: none; }
+  .hx-reply__text { font-size: 0.95rem; }
 }
 
 /* ==================================================================== HUD ==
  *
- * The information layer, and there is very little of it. Two tiers:
+ * The information layer, and there is very little of it. Three tiers:
  *
- *   state      .hx-core__sub    what is in the vault, or that it cannot be read
- *   subsystem  .hx-signal       a dot per service: up, down, or unreachable
+ *   reply   .hx-reply         what he said, until it has been read
+ *   state   .hx-core__state   what he is doing, or the resting line
+ *   system  .hx-signal        one dot: answering, not answering, unreachable
  *
  * Anything that cannot be measured does not get a place on the screen, and
  * most of what can be measured does not either — it is one ACTIVITY away.
+ * Two of the three tiers are transient by design: the screen at rest is the
+ * sphere, the wordmark and one line.
  */
 
 /* --------------------------------------------------------- activity line */

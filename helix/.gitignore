@@ -19,3 +19,7 @@ huggingface_cache/
 .tokens.json
 models/
 vault/
+
+# What Helix remembers and what you said to him. Personal, and never shared.
+helix-memory.json
+helix-conversation.json

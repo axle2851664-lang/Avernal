@@ -19,9 +19,9 @@ import Anthropic, {
 } from '@anthropic-ai/sdk';
 
 /**
- * Opus 5. A butler's reply is one or two sentences, so the ceiling is low and
- * the effort is low with it — this is a remark, not a research task, and
- * paying for deep reasoning to produce one dry sentence is money on fire.
+ * Opus 5. A reply is one or two sentences, so the ceiling is low and the
+ * effort is low with it — this is a remark, not a research task, and paying
+ * for deep reasoning to produce one flat sentence is money on fire.
  */
 const MODEL = 'claude-opus-5';
 const MAX_TOKENS = 400;
@@ -116,10 +116,10 @@ export class HelixMind {
 
     const preamble: string[] = [];
     if ((options.memory ?? '') !== '') {
-      preamble.push('WHAT YOU REMEMBER ABOUT HIM\n' + options.memory);
+      preamble.push('WHAT YOU REMEMBER ABOUT THEM\n' + options.memory);
     }
     if (notes !== '') {
-      preamble.push('NOTES FROM HIS VAULT\n' + notes);
+      preamble.push('NOTES FROM THEIR VAULT\n' + notes);
     }
 
     const messages: Anthropic.MessageParam[] = [];

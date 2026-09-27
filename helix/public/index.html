@@ -11,37 +11,54 @@
 <!--
   One screen, one focal point.
 
-  Everything that is not the sphere is either a single line of state or a way
-  in to the console. The counts, the clock, the latency and the uptime are all
-  still measured and still reachable — through the ACTIVITY command, which is
-  where you go when you want numbers, rather than having them on the wall all
-  the time.
+  Permanently on it: the sphere, the wordmark, one line saying what Helix is
+  doing, one status dot, and the two ways in — voice and the command console.
+  Nothing else. Replies appear under the wordmark and leave again once read.
+
+  The counts, clock, latency, uptime and per-subsystem states are all still
+  measured; ACTIVITY in the console reports them. They are off the wall, not
+  gone.
 -->
 <main class="hx-shell hx-main">
 
-  <div class="hx-stage">
+  <div class="hx-stage" id="stage" data-state="idle">
     <!-- The galaxy. Decorative to a screen reader: what it encodes is also
-         written out in the line under the wordmark, which is real text. -->
+         written out in the state line, which is real text. -->
     <canvas id="galaxy" aria-hidden="true"></canvas>
 
     <div class="hx-core">
       <h1>Helix</h1>
-      <p class="hx-core__sub" id="core-sub">Reading vault</p>
+      <!-- One line, and it says only what is true right now: what the system
+           is doing, or that it is doing nothing. -->
+      <p class="hx-core__state" id="core-state" role="status">Reading vault</p>
+      <!-- The reply. Absent until there is one, gone once it has been read.
+           The note under it carries where the answer came from and anything
+           that was kept, so the console does not have to say it again. -->
+      <div class="hx-reply" id="reply" hidden>
+        <p class="hx-reply__text" id="reply-text"></p>
+        <p class="hx-reply__note" id="reply-note" hidden></p>
+      </div>
     </div>
 
-    <!-- The whole permanent HUD: what is running, and the way in. -->
+    <!-- Status on one side, the two ways in on the other. That is the whole
+         permanent interface. -->
     <div class="hx-hud">
-      <div class="hx-hud__signals" id="signals">
-        <span class="hx-signal" id="sig-gmail" data-state="unknown">Gmail</span>
-        <span class="hx-signal" id="sig-youtube" data-state="unknown">YouTube</span>
-        <span class="hx-signal" id="sig-generators" data-state="unknown">Generators</span>
-        <span class="hx-signal" id="sig-voice" data-state="unknown">Voice</span>
-        <span class="hx-signal" id="sig-mind" data-state="unknown">Mind</span>
-      </div>
+      <span class="hx-signal" id="system" data-state="unknown">Connecting</span>
 
-      <button type="button" class="hx-cmd-open" id="cmd-open">
-        <span class="hx-cmd-open__key">Ctrl K</span> Console
-      </button>
+      <div class="hx-controls">
+        <button type="button" class="hx-control" id="mic" aria-pressed="false">
+          <svg class="hx-control__icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+            <rect x="6" y="2" width="4" height="8" rx="2" />
+            <path d="M3.5 8a4.5 4.5 0 0 0 9 0M8 12.5V14" />
+          </svg>
+          <span class="hx-control__text">Voice</span>
+        </button>
+
+        <button type="button" class="hx-control" id="cmd-open">
+          <span class="hx-control__key">Ctrl K</span>
+          <span class="hx-control__text">Command</span>
+        </button>
+      </div>
     </div>
 
     <div class="hx-activity" id="activity" hidden aria-hidden="true"></div>
