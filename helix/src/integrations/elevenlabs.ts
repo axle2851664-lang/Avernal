@@ -20,10 +20,34 @@ export const MAX_SPEECH_LENGTH = 800;
 /** Their default multilingual model. Overridable, since their catalogue moves. */
 const DEFAULT_MODEL = 'eleven_multilingual_v2';
 
+/**
+ * Their transcription model. Separate from the speech model and separately
+ * overridable, because the two catalogues move independently.
+ */
+const DEFAULT_HEARING_MODEL = 'scribe_v2';
+
+/**
+ * A ceiling on an uploaded clip, in bytes.
+ *
+ * This is a spoken question, not a recording session: at Opus bitrates a
+ * minute of speech is well under half a megabyte, so eight is generous and
+ * still small enough that a stuck recorder cannot post a gigabyte at the
+ * service and bill it to the user.
+ */
+export const MAX_AUDIO_BYTES = 8 * 1024 * 1024;
+
 export interface VoiceConfig {
   readonly apiKey: string;
   readonly voiceId: string;
   readonly modelId?: string;
+  readonly hearingModelId?: string;
+}
+
+/** What came back from a transcription. */
+export interface Transcript {
+  readonly text: string;
+  /** The language the service detected, e.g. "eng". Null when it did not say. */
+  readonly language: string | null;
 }
 
 export interface VoiceSummary {
@@ -55,6 +79,10 @@ export interface VoiceStatus {
   readonly modelId: string;
   /** Why it is not usable, when it is not. */
   readonly reason: string | null;
+  /** Whether Helix can listen, which needs the key and nothing else. */
+  readonly canHear: boolean;
+  /** Why he cannot listen, when he cannot. Not the same gap as `reason`. */
+  readonly hearingReason: string | null;
 }
 
 type Fetch = typeof globalThis.fetch;
@@ -63,12 +91,17 @@ export class ElevenLabsVoice {
   readonly #apiKey: string;
   readonly #voiceId: string;
   readonly #modelId: string;
+  readonly #hearingModelId: string;
   readonly #fetch: Fetch;
 
   public constructor(config: Partial<VoiceConfig> = {}, fetchImpl: Fetch = globalThis.fetch) {
     this.#apiKey = (config.apiKey ?? '').trim();
     this.#voiceId = (config.voiceId ?? '').trim();
     this.#modelId = (config.modelId ?? '').trim() === '' ? DEFAULT_MODEL : config.modelId!.trim();
+    this.#hearingModelId =
+      (config.hearingModelId ?? '').trim() === ''
+        ? DEFAULT_HEARING_MODEL
+        : config.hearingModelId!.trim();
     this.#fetch = fetchImpl;
   }
 
@@ -79,6 +112,7 @@ export class ElevenLabsVoice {
         apiKey: env.ELEVENLABS_API_KEY ?? '',
         voiceId: env.ELEVENLABS_VOICE_ID ?? '',
         modelId: env.ELEVENLABS_MODEL_ID ?? '',
+        hearingModelId: env.ELEVENLABS_STT_MODEL_ID ?? '',
       },
       fetchImpl
     );
@@ -86,6 +120,17 @@ export class ElevenLabsVoice {
 
   public get configured(): boolean {
     return this.#apiKey !== '' && this.#voiceId !== '';
+  }
+
+  /**
+   * Whether Helix can listen.
+   *
+   * Deliberately a lower bar than `configured`: transcription needs the key
+   * and nothing else, so someone who has set a key but not chosen a voice can
+   * still talk to Helix — he simply answers in text.
+   */
+  public get canHear(): boolean {
+    return this.#apiKey !== '';
   }
 
   /**
@@ -110,6 +155,11 @@ export class ElevenLabsVoice {
       voiceId: this.#voiceId === '' ? null : this.#voiceId,
       modelId: this.#modelId,
       reason,
+      canHear: this.canHear,
+      // Reported separately from `reason` because it is a different gap: a
+      // missing voice id stops him speaking and not hearing, and telling
+      // someone to set one to fix the microphone would send them the wrong way.
+      hearingReason: this.canHear ? null : 'Set ELEVENLABS_API_KEY to let Helix listen.',
     };
   }
 
@@ -164,6 +214,65 @@ export class ElevenLabsVoice {
         name: typeof entry.name === 'string' ? entry.name : 'unnamed',
         category: typeof entry.category === 'string' ? entry.category : 'unknown',
       }));
+  }
+
+  /**
+   * Transcribe a clip of speech.
+   *
+   * The endpoint, the field names and the response shape here are taken from
+   * ElevenLabs' own generated client (@elevenlabs/elevenlabs-js 2.69.0), not
+   * from memory: POST v1/speech-to-text, multipart with `model_id` and
+   * `file`, answering `{ language_code, language_probability, text, words }`.
+   *
+   * `filename` only tells the service what kind of container it is being
+   * handed — the browser's recorder decides that, and it is not the same on
+   * every browser — so it is passed through rather than assumed.
+   */
+  public async transcribe(audio: Buffer, filename: string, contentType: string): Promise<Transcript> {
+    if (!this.canHear) {
+      throw new VoiceError('Set ELEVENLABS_API_KEY to let Helix listen.', 503);
+    }
+    if (audio.length === 0) throw new VoiceError('There is no audio.', 400);
+    if (audio.length > MAX_AUDIO_BYTES) {
+      throw new VoiceError(
+        'That clip is ' +
+          Math.round(audio.length / 1024) +
+          'KB; the limit is ' +
+          Math.round(MAX_AUDIO_BYTES / 1024) +
+          'KB. Say it in less.',
+        413
+      );
+    }
+
+    const form = new FormData();
+    form.append('model_id', this.#hearingModelId);
+    form.append('file', new Blob([new Uint8Array(audio)], { type: contentType }), filename);
+
+    let response: Response;
+    try {
+      // No Content-Type header: fetch sets it from the FormData, including
+      // the multipart boundary, which cannot be written by hand.
+      response = await this.#fetch(API_ROOT + '/speech-to-text', {
+        method: 'POST',
+        headers: this.#headers(),
+        body: form,
+      });
+    } catch (error) {
+      throw new VoiceError('Could not reach ElevenLabs: ' + (error as Error).message, 502);
+    }
+
+    if (!response.ok) throw new VoiceError(ElevenLabsVoice.#explain(response.status), response.status);
+
+    const body = (await response.json()) as { text?: unknown; language_code?: unknown };
+    const text = typeof body.text === 'string' ? body.text.trim() : '';
+    // Silence transcribes to an empty string rather than to an error, and a
+    // question nobody asked must not be put to the model.
+    if (text === '') throw new VoiceError('Nothing was said.', 422);
+
+    return {
+      text,
+      language: typeof body.language_code === 'string' ? body.language_code : null,
+    };
   }
 
   /** Speak. Returns the audio; playing it is the caller's problem. */

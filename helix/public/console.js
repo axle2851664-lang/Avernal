@@ -28,7 +28,11 @@
   var MAX_RESULTS = 8;
 
   var open = false;
-  var active = 0;
+  // -1 is "nothing chosen yet", and it is what the console opens on. A
+  // pre-selected first row means Enter fires a command the person never
+  // picked — so a choice has to be made, by arrowing to it or clicking it,
+  // before Enter can run one.
+  var active = -1;
   var rows = [];
   var restoreFocusTo = null;
 
@@ -477,7 +481,9 @@
 
   function render() {
     rows = build(input.value);
-    if (active >= rows.length) active = Math.max(0, rows.length - 1);
+    // Clamp, but never back to 0: a shrinking list must not select something
+    // on the person's behalf either.
+    if (active >= rows.length) active = rows.length === 0 ? -1 : rows.length - 1;
 
     list.innerHTML = '';
     for (var i = 0; i < rows.length; i += 1) {
@@ -529,8 +535,17 @@
   }
 
   function execute() {
-    var row = rows[active];
-    if (row === undefined) return;
+    /*
+     * Enter with nothing chosen.
+     *
+     * On an empty console it does nothing, which is the point of opening
+     * unselected. With something typed it runs the first row — which is what
+     * the typed text resolves to, a matched command or the ASK fallback —
+     * because refusing to act on text the person typed and submitted would
+     * just be pedantry.
+     */
+    var row = rows[active === -1 ? 0 : active];
+    if (row === undefined || (active === -1 && input.value.trim() === '')) return;
     var outcome = row.run();
     if (outcome === 'close') close();
     else render();
@@ -546,7 +561,7 @@
     input.value = '';
     out.hidden = true;
     out.innerHTML = '';
-    active = 0;
+    active = -1;
     render();
     input.focus();
   }
@@ -593,12 +608,19 @@
       if (event.key === 'Escape') { event.preventDefault(); close(); return; }
       if (event.key === 'ArrowDown') {
         event.preventDefault();
+        // From nothing, down goes to the first row; -1 + 1 is already 0.
         if (rows.length > 0) { active = (active + 1) % rows.length; render(); }
         return;
       }
       if (event.key === 'ArrowUp') {
         event.preventDefault();
-        if (rows.length > 0) { active = (active - 1 + rows.length) % rows.length; render(); }
+        // From nothing, up goes to the last row. The modulo would land on the
+        // second to last, because -1 is one before the first and not one
+        // after the end.
+        if (rows.length > 0) {
+          active = active === -1 ? rows.length - 1 : (active - 1 + rows.length) % rows.length;
+          render();
+        }
         return;
       }
       if (event.key === 'Enter') { event.preventDefault(); execute(); return; }
@@ -624,7 +646,7 @@
   });
 
   input.addEventListener('input', function () {
-    active = 0;
+    active = -1;
     render();
   });
 

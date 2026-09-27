@@ -6,7 +6,7 @@ import { dirname, join } from 'path';
 import { GmailSync, type Email } from '../integrations/gmail.js';
 import { YouTubeSync, type Video } from '../integrations/youtube.js';
 import { generateImage, generateVideo } from '../integrations/generators.js';
-import { ElevenLabsVoice, VoiceError } from '../integrations/elevenlabs.js';
+import { ElevenLabsVoice, VoiceError, MAX_AUDIO_BYTES } from '../integrations/elevenlabs.js';
 import { HelixMind, MindError, type Exchange } from '../integrations/claude.js';
 import { SYSTEM_PROMPT, renderNotesContext } from '../core/galaxy/persona.js';
 import { groundedNotes } from '../core/galaxy/retrieval.js';
@@ -617,7 +617,11 @@ function sendVoiceError(res: Response, error: unknown): void {
   res.status(500).json({ error: 'Speech failed.' });
 }
 
-/** Whether Helix can speak, and what to set if it cannot. Never the key. */
+/**
+ * Whether Helix can speak and hear, and what to set if he cannot. Never the
+ * key. `canHear` is reported separately because listening needs only the key:
+ * someone who has not chosen a voice can still talk to Helix.
+ */
 app.get('/voice/status', (_req: Request, res: Response) => {
   res.json(voice.status());
 });
@@ -629,6 +633,46 @@ app.get('/voice/voices', async (_req: Request, res: Response) => {
     sendVoiceError(res, error);
   }
 });
+
+/*
+ * Listen.
+ *
+ * The clip arrives as a raw body rather than a multipart upload: the browser
+ * hands the recorder's Blob straight to fetch, there is exactly one field, and
+ * a multipart parser here would be a dependency and a parser to be wrong
+ * about for no gain. The Content-Type is whatever the browser's recorder
+ * produced — webm/opus on Chrome, mp4 on Safari — and is passed through, since
+ * guessing it for the service would only make Helix deaf on one browser.
+ *
+ * Nothing is written to disk. The clip exists for the length of the request.
+ */
+app.post(
+  '/voice/listen',
+  express.raw({ type: ['audio/*', 'video/*'], limit: MAX_AUDIO_BYTES }),
+  async (req: Request, res: Response) => {
+    if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+      return res.status(400).json({ error: 'No audio arrived. Send the recording as the body.' });
+    }
+
+    const contentType = (req.headers['content-type'] ?? 'audio/webm').split(';')[0] ?? 'audio/webm';
+    // The service reads the container from the filename as well as the type,
+    // so the extension has to follow the one the browser actually recorded.
+    const extension = contentType.includes('mp4')
+      ? 'mp4'
+      : contentType.includes('ogg')
+        ? 'ogg'
+        : contentType.includes('wav')
+          ? 'wav'
+          : 'webm';
+
+    try {
+      const heard = await voice.transcribe(req.body, 'speech.' + extension, contentType);
+      res.json({ text: heard.text, language: heard.language });
+    } catch (error) {
+      sendVoiceError(res, error);
+    }
+  }
+);
 
 /*
  * Speak a line. The audio comes back as the response body rather than a file

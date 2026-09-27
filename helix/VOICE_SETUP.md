@@ -5,12 +5,37 @@ Two separate keys, and he needs both to hold a conversation:
 | what | variable | gives him |
 | --- | --- | --- |
 | Anthropic | `ANTHROPIC_API_KEY` | the answer |
-| ElevenLabs | `ELEVENLABS_API_KEY` + `ELEVENLABS_VOICE_ID` | the voice to say it in |
+| ElevenLabs | `ELEVENLABS_API_KEY` | ears |
+| ElevenLabs | `ELEVENLABS_VOICE_ID` | the voice to answer in |
 
-With only the Anthropic key he answers in text. With only the ElevenLabs key
-he can speak a line you give him but cannot think of one himself.
+With only the Anthropic key he answers in text and cannot hear you. With only
+the ElevenLabs key he can hear you and speak a line you give him, but cannot
+think of one himself.
 
-## Asking him something
+Note the split: **listening needs the key alone**. Set `ELEVENLABS_API_KEY`
+and the microphone works even before you have chosen a voice — he will just
+answer on screen instead of out loud.
+
+## Talking to him
+
+Press **Voice** at the foot of the screen and say it. Helix records, stops on
+his own when you stop talking, transcribes the clip through ElevenLabs, and
+answers. Press it again to cut a recording short, or `Esc`. Nothing is
+recorded until you press it, and nothing is written to disk — the clip exists
+for the length of one request.
+
+Two things the browser insists on:
+
+- **A secure page.** `http://localhost` counts; a bare LAN address like
+  `http://192.168.1.4` does not, and the microphone will refuse to open.
+- **Permission**, once, per browser. If you refuse it, the control disables
+  itself and says so rather than failing silently every time you press it.
+
+`ELEVENLABS_STT_MODEL_ID` overrides the transcription model, which defaults to
+`scribe_v2`. It is separate from `ELEVENLABS_MODEL_ID`, which is the speaking
+model — the two catalogues move independently.
+
+## Asking him something in writing
 
 Open the console with `Ctrl+K` and type a question. Anything ending in `?`
 is treated as one, so you do not need a command word:
@@ -19,13 +44,18 @@ is treated as one, so you do not need a command word:
 what is my storage ceiling?
 ```
 
-He answers from your vault, shows which notes he used, and says it aloud if
-the voice is set up. `ASK <question>` does the same thing explicitly.
+The console gets out of the way and the answer appears under the wordmark,
+with a dim line under it saying which notes he used and anything he kept. He
+says it aloud too, if a voice is set up. `ASK <question>` does the same thing
+explicitly.
+
+Nothing is selected when the console opens, so `Enter` on an empty console
+does nothing. Arrow to a command or type one.
 
 He answers **only** from your notes and what he has been told to remember. If
 nothing in the vault covers it, he says so rather than filling the gap — the
-console prints *"Not from your notes — he was just talking"* when the reply
-was conversation rather than fact.
+line under the answer reads *"Not from your notes"* when the reply was
+conversation rather than fact.
 
 ## The Anthropic key
 

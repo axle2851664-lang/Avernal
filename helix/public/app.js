@@ -266,7 +266,7 @@
     // per press, outermost first, so Escape always means "the thing in front
     // of me" rather than "everything".
     if (!el('cmd').hidden) return;
-    if (listening) { stopListening(); event.preventDefault(); return; }
+    if (recording) { stopListening(); event.preventDefault(); return; }
     if (hideSheet() || clearReply()) event.preventDefault();
   });
 
@@ -510,99 +510,222 @@
   /* ------------------------------------------------------------- listening */
 
   /*
-   * The voice control.
+   * The voice control, end to end.
    *
-   * Speech recognition is the browser's own — no library, no key, no audio
-   * leaving the page except through whatever the browser already does. Where
-   * it is missing the control says so and stays put: a dead button that
-   * explains itself is better than one that silently does nothing, and better
-   * than none at all when the question is "can Helix hear me".
+   * Press it, speak, and it stops on its own when you stop talking. The clip
+   * goes to /voice/listen, which transcribes it through ElevenLabs — the same
+   * key that gives Helix his voice — and the transcript goes straight into the
+   * same ask() the console uses. There is one implementation of asking;
+   * speaking is another way in.
+   *
+   * This was the browser's own SpeechRecognition, which is Chrome and Safari
+   * only, needs a secure context, and sends audio to the browser vendor rather
+   * than to the service the user already configured. Recording and posting the
+   * clip works everywhere MediaRecorder does and keeps it to one provider.
    */
-  var Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  var listener = null;
-  var listening = false;
+  var MAX_CLIP_MS = 30000;   // A question, not a monologue.
+  var SILENCE_MS = 1400;     // How long a pause has to run before it counts.
+  var SILENCE_LEVEL = 0.012; // RMS below this is room tone, not speech.
 
-  // What the recognition API's error codes actually mean, in words. The codes
-  // themselves are no use to anyone standing in front of the screen.
-  var LISTEN_ERRORS = {
-    'not-allowed': 'Microphone permission was refused.',
-    'service-not-allowed': 'This browser will not allow speech recognition here.',
-    'no-speech': 'I heard nothing.',
-    'audio-capture': 'No microphone was found.',
-    network: 'Speech recognition could not reach its service.',
-    aborted: '',
-  };
+  var recorder = null;
+  var recording = false;
+  var audioStream = null;
+  var audioContext = null;
+  var silenceWatch = 0;
+  var clipLimit = 0;
+  var heardSomething = false;
 
-  function micFault(message) {
+  function micOff(message) {
     var mic = el('mic');
     mic.disabled = true;
     mic.title = message;
   }
 
-  function stopListening() {
-    if (listener !== null && listening) listener.stop();
-  }
-
-  function startListening() {
-    if (listener === null || listening) return;
-    try {
-      listener.start();
-    } catch (err) {
-      // start() throws if it is already running — which the flag should have
-      // caught, but the flag is set by an event and the event can be late.
-      console.warn('Could not start listening:', err.message);
+  /** Let go of the microphone. Leaving it open leaves the tab's light on. */
+  function releaseMic() {
+    window.clearInterval(silenceWatch);
+    window.clearTimeout(clipLimit);
+    silenceWatch = 0;
+    clipLimit = 0;
+    if (audioContext !== null) {
+      audioContext.close().catch(function () {});
+      audioContext = null;
+    }
+    if (audioStream !== null) {
+      audioStream.getTracks().forEach(function (track) { track.stop(); });
+      audioStream = null;
     }
   }
 
-  if (Recognition === undefined) {
-    micFault('This browser has no speech recognition. Use Ctrl K and type.');
-  } else {
-    listener = new Recognition();
-    listener.lang = document.documentElement.lang || 'en';
-    listener.interimResults = false;
-    listener.maxAlternatives = 1;
+  /**
+   * Watch the level and stop once the talking has stopped.
+   *
+   * Push-to-talk would be simpler, but holding a button to speak to an
+   * assistant is a worse thing to do than speaking to it. The hard limit
+   * stands behind this so a recorder can never run away.
+   */
+  function watchForSilence(stream) {
+    var Ctor = window.AudioContext || window.webkitAudioContext;
+    if (Ctor === undefined) return; // No level metering; the timeout still applies.
 
-    listener.addEventListener('start', function () {
-      listening = true;
-      el('mic').setAttribute('aria-pressed', 'true');
-      clearReply();
-      setState('listening');
-    });
+    audioContext = new Ctor();
+    var analyser = audioContext.createAnalyser();
+    analyser.fftSize = 512;
+    audioContext.createMediaStreamSource(stream).connect(analyser);
 
-    listener.addEventListener('result', function (event) {
-      var result = event.results[event.results.length - 1];
-      var said = result && result[0] ? result[0].transcript.trim() : '';
-      if (said === '') return;
-      // Straight to the same path the console's ASK uses. There is one
-      // implementation of asking, and speaking into it is just another way in.
-      // ask() has already put any failure on the screen; this is only here
-      // so the rejection is not unhandled.
-      ask(said).catch(function () {});
-    });
+    var samples = new Float32Array(analyser.fftSize);
+    var quietSince = 0;
+    heardSomething = false;
 
-    listener.addEventListener('error', function (event) {
-      var why = LISTEN_ERRORS[event.error];
-      if (why === undefined) why = 'Listening failed (' + event.error + ').';
-      if (why !== '') showReply(why);
-      // A refused permission will be refused again. Saying so once and
-      // standing down beats a button that fails identically on every press.
-      if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-        micFault(why);
+    silenceWatch = window.setInterval(function () {
+      analyser.getFloatTimeDomainData(samples);
+      var sum = 0;
+      for (var i = 0; i < samples.length; i += 1) sum += samples[i] * samples[i];
+      var level = Math.sqrt(sum / samples.length);
+
+      if (level >= SILENCE_LEVEL) {
+        heardSomething = true;
+        quietSince = 0;
+        return;
       }
-    });
+      // Silence before anything was said is someone deciding what to say.
+      if (!heardSomething) return;
+      if (quietSince === 0) quietSince = Date.now();
+      else if (Date.now() - quietSince >= SILENCE_MS) stopListening();
+    }, 150);
+  }
 
-    listener.addEventListener('end', function () {
-      listening = false;
-      el('mic').setAttribute('aria-pressed', 'false');
-      // Only idle if nothing came of it: a result has already moved the
-      // screen on to thinking, and this event lands after it.
-      if (state === 'listening') setState('idle');
-    });
+  function stopListening() {
+    if (recorder !== null && recording) recorder.stop();
+  }
 
+  /** Send the clip, then ask what it turned out to be. */
+  function transcribe(clip) {
+    if (clip.size === 0) {
+      showReply('Nothing was recorded.');
+      setState('idle');
+      return;
+    }
+
+    setState('thinking');
+    busy(1);
+    fetch('/voice/listen', {
+      method: 'POST',
+      headers: { 'Content-Type': clip.type || 'audio/webm' },
+      body: clip,
+    })
+      .then(function (res) {
+        return res.json().then(function (body) {
+          if (!res.ok) throw new Error(body.error || 'That could not be transcribed.');
+          return body;
+        });
+      })
+      .then(function (body) {
+        busy(-1);
+        // ask() takes it from here, including putting the answer on screen.
+        return ask(body.text).catch(function () {});
+      })
+      .catch(function (err) {
+        busy(-1);
+        showReply(err.message);
+        setState('idle');
+      });
+  }
+
+  function startListening() {
+    if (recording || el('mic').disabled) return;
+
+    // getUserMedia is only available in a secure context. Saying which is the
+    // difference between a broken button and a fixable setup.
+    if (navigator.mediaDevices === undefined || !window.isSecureContext) {
+      showReply(
+        'The microphone needs a secure page. Open Helix on localhost or over HTTPS, ' +
+          'or use Ctrl K and type.'
+      );
+      return;
+    }
+
+    navigator.mediaDevices
+      .getUserMedia({ audio: true })
+      .then(function (stream) {
+        audioStream = stream;
+        // Let the browser pick the container. Chrome records webm/opus and
+        // Safari mp4; the server passes whichever through to the service
+        // rather than insisting on one and being deaf on the other.
+        recorder = new MediaRecorder(stream);
+        var chunks = [];
+
+        recorder.addEventListener('dataavailable', function (event) {
+          if (event.data && event.data.size > 0) chunks.push(event.data);
+        });
+
+        recorder.addEventListener('start', function () {
+          recording = true;
+          el('mic').setAttribute('aria-pressed', 'true');
+          clearReply();
+          setState('listening');
+        });
+
+        recorder.addEventListener('stop', function () {
+          recording = false;
+          el('mic').setAttribute('aria-pressed', 'false');
+          releaseMic();
+          transcribe(new Blob(chunks, { type: recorder.mimeType || 'audio/webm' }));
+        });
+
+        recorder.addEventListener('error', function (event) {
+          recording = false;
+          el('mic').setAttribute('aria-pressed', 'false');
+          releaseMic();
+          showReply('The recording failed: ' + ((event.error && event.error.name) || 'unknown'));
+          setState('idle');
+        });
+
+        recorder.start();
+        watchForSilence(stream);
+        // The backstop. Silence detection is a heuristic; this is not.
+        clipLimit = window.setTimeout(stopListening, MAX_CLIP_MS);
+      })
+      .catch(function (err) {
+        releaseMic();
+        // A refused permission will be refused again until the person changes
+        // it in the browser, so the control stands down rather than failing
+        // identically on every press.
+        if (err.name === 'NotAllowedError' || err.name === 'SecurityError') {
+          micOff('Microphone permission was refused. Allow it in the browser to use voice.');
+          showReply('Microphone permission was refused.');
+        } else if (err.name === 'NotFoundError') {
+          micOff('No microphone was found.');
+          showReply('No microphone was found.');
+        } else {
+          showReply('The microphone could not be opened: ' + err.message);
+        }
+        setState('idle');
+      });
+  }
+
+  if (window.MediaRecorder === undefined || navigator.mediaDevices === undefined) {
+    micOff('This browser cannot record audio. Use Ctrl K and type.');
+  } else {
     el('mic').addEventListener('click', function () {
-      if (listening) stopListening();
+      if (recording) stopListening();
       else startListening();
     });
+
+    // Whether the server can transcribe at all. Asked once: a mic that opens
+    // and records and then reports that no key is set has wasted the whole
+    // performance, and made the user say it twice.
+    fetch('/voice/status')
+      .then(function (res) { return res.json(); })
+      .then(function (status) {
+        if (status.canHear === false) {
+          micOff(status.hearingReason || 'Set ELEVENLABS_API_KEY to let Helix listen.');
+        }
+      })
+      .catch(function () {
+        // An unreachable server is not a missing key, and the button is not
+        // the place to report that the whole server is down.
+      });
   }
 
   /* --------------------------------------------------------- console hooks */
@@ -637,13 +760,15 @@
     ask: ask,
     /** What the screen is showing. Reported by ACTIVITY, not inferred by it. */
     state: function () { return state; },
-    /** Start or stop listening. Returns false when this browser cannot. */
+    /** Start or stop listening. Returns false when it cannot. */
     listen: function (on) {
-      if (listener === null || el('mic').disabled) return false;
+      if (el('mic').disabled) return false;
       if (on === false) stopListening();
       else startListening();
       return true;
     },
+    /** True while the microphone is open. */
+    listening: function () { return recording; },
     focusNoteField: function () {
       showPanel('note-panel');
       el('note').focus();

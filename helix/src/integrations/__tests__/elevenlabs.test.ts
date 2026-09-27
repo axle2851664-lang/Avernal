@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ElevenLabsVoice, MAX_SPEECH_LENGTH, VoiceError } from '../elevenlabs.js';
+import { ElevenLabsVoice, MAX_AUDIO_BYTES, MAX_SPEECH_LENGTH, VoiceError } from '../elevenlabs.js';
 
 const KEY = 'test-key-value-not-real';
 const CONFIG = { apiKey: KEY, voiceId: 'voice-123' };
@@ -14,6 +14,20 @@ describe('configuration', () => {
     expect(new ElevenLabsVoice({ apiKey: KEY }).status().reason).toContain('ELEVENLABS_VOICE_ID');
     expect(new ElevenLabsVoice({ voiceId: 'v' }).status().reason).toContain('ELEVENLABS_API_KEY');
     expect(new ElevenLabsVoice(CONFIG).configured).toBe(true);
+  });
+
+  it('reports the hearing gap separately from the speaking gap', () => {
+    // A missing voice id stops him speaking, not hearing. Telling someone to
+    // set one to fix the microphone sends them the wrong way.
+    const halfway = new ElevenLabsVoice({ apiKey: KEY }).status();
+    expect(halfway.configured).toBe(false);
+    expect(halfway.reason).toContain('ELEVENLABS_VOICE_ID');
+    expect(halfway.canHear).toBe(true);
+    expect(halfway.hearingReason).toBeNull();
+
+    const nothing = new ElevenLabsVoice({}).status();
+    expect(nothing.canHear).toBe(false);
+    expect(nothing.hearingReason).toContain('ELEVENLABS_API_KEY');
   });
 
   it('never puts the key in its own status', () => {
@@ -132,5 +146,147 @@ describe('voices', () => {
     const voice = new ElevenLabsVoice(CONFIG, (async () =>
       respond(JSON.stringify({}))) as unknown as typeof fetch);
     await expect(voice.voices()).resolves.toEqual([]);
+  });
+});
+
+describe('transcribe', () => {
+  const CLIP = Buffer.from([0x1a, 0x45, 0xdf, 0xa3]);
+
+  /*
+   * The shape these assert is not remembered: it is the one in ElevenLabs'
+   * own generated client, @elevenlabs/elevenlabs-js 2.69.0 — POST
+   * v1/speech-to-text, multipart with model_id and file, answering
+   * { language_code, language_probability, text, words }. If they move it,
+   * these fail here rather than in someone's microphone.
+   */
+  function heard(body: unknown, status = 200): Response {
+    return new Response(JSON.stringify(body), {
+      status,
+      headers: { 'content-type': 'application/json' },
+    });
+  }
+
+  it('posts the clip as multipart with the model and the file', async () => {
+    const fetchImpl = vi.fn(async () => heard({ text: 'what is in the vault', language_code: 'eng' }));
+    const voice = new ElevenLabsVoice(CONFIG, fetchImpl as unknown as typeof fetch);
+
+    const transcript = await voice.transcribe(CLIP, 'speech.webm', 'audio/webm');
+
+    expect(transcript.text).toBe('what is in the vault');
+    expect(transcript.language).toBe('eng');
+
+    const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('https://api.elevenlabs.io/v1/speech-to-text');
+    expect(init.method).toBe('POST');
+    expect((init.headers as Record<string, string>)['xi-api-key']).toBe(KEY);
+
+    const form = init.body as FormData;
+    expect(form).toBeInstanceOf(FormData);
+    expect(form.get('model_id')).toBe('scribe_v2');
+    const file = form.get('file') as File;
+    expect(file.name).toBe('speech.webm');
+    expect(file.type).toBe('audio/webm');
+    expect(file.size).toBe(CLIP.length);
+  });
+
+  it('sets no Content-Type of its own, so the boundary is not lost', async () => {
+    // A hand-written multipart header has no boundary in it, and the service
+    // reads an empty body. This is the classic way to break this call.
+    const fetchImpl = vi.fn(async () => heard({ text: 'hello' }));
+    const voice = new ElevenLabsVoice(CONFIG, fetchImpl as unknown as typeof fetch);
+
+    await voice.transcribe(CLIP, 'speech.webm', 'audio/webm');
+
+    const [, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    const headers = init.headers as Record<string, string>;
+    expect(Object.keys(headers).map((k) => k.toLowerCase())).not.toContain('content-type');
+  });
+
+  it('carries the browser\'s own container through rather than assuming one', async () => {
+    // Safari records mp4, Chrome webm. Insisting on either makes Helix deaf
+    // on the other.
+    const fetchImpl = vi.fn(async () => heard({ text: 'hello' }));
+    const voice = new ElevenLabsVoice(CONFIG, fetchImpl as unknown as typeof fetch);
+
+    await voice.transcribe(CLIP, 'speech.mp4', 'audio/mp4');
+
+    const form = (fetchImpl.mock.calls[0] as unknown as [string, RequestInit])[1].body as FormData;
+    expect((form.get('file') as File).type).toBe('audio/mp4');
+  });
+
+  it('listens on the key alone, without a voice chosen', async () => {
+    // Speaking needs a voice; hearing does not. Someone part-way through
+    // setup should still be able to talk to Helix.
+    const fetchImpl = vi.fn(async () => heard({ text: 'hello' }));
+    const voice = new ElevenLabsVoice({ apiKey: KEY }, fetchImpl as unknown as typeof fetch);
+
+    expect(voice.configured).toBe(false);
+    expect(voice.canHear).toBe(true);
+    await expect(voice.transcribe(CLIP, 'speech.webm', 'audio/webm')).resolves.toBeTruthy();
+  });
+
+  it('refuses to call out at all without a key', async () => {
+    const fetchImpl = vi.fn();
+    const voice = new ElevenLabsVoice({ voiceId: 'v' }, fetchImpl as unknown as typeof fetch);
+
+    await expect(voice.transcribe(CLIP, 'speech.webm', 'audio/webm')).rejects.toThrow(
+      /ELEVENLABS_API_KEY/
+    );
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('will not post an empty clip or an oversized one', async () => {
+    const fetchImpl = vi.fn();
+    const voice = new ElevenLabsVoice(CONFIG, fetchImpl as unknown as typeof fetch);
+
+    await expect(voice.transcribe(Buffer.alloc(0), 'a.webm', 'audio/webm')).rejects.toThrow(
+      /no audio/i
+    );
+    await expect(
+      voice.transcribe(Buffer.alloc(MAX_AUDIO_BYTES + 1), 'a.webm', 'audio/webm')
+    ).rejects.toThrow(/limit/i);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('treats a transcript of nothing as nothing said, not as a question', async () => {
+    // Silence comes back as an empty string with a 200. Putting that to the
+    // model would have Helix answering a question nobody asked.
+    const fetchImpl = vi.fn(async () => heard({ text: '   ', language_code: 'eng' }));
+    const voice = new ElevenLabsVoice(CONFIG, fetchImpl as unknown as typeof fetch);
+
+    await expect(voice.transcribe(CLIP, 'a.webm', 'audio/webm')).rejects.toThrow(/nothing was said/i);
+  });
+
+  it('maps a refusal to a sentence of its own, never the service body', async () => {
+    const fetchImpl = vi.fn(async () =>
+      heard({ detail: 'your key sk-live-should-never-be-echoed failed' }, 401)
+    );
+    const voice = new ElevenLabsVoice(CONFIG, fetchImpl as unknown as typeof fetch);
+
+    await expect(voice.transcribe(CLIP, 'a.webm', 'audio/webm')).rejects.toThrow(
+      'ElevenLabs rejected the API key.'
+    );
+  });
+
+  it('reports an unreachable service as unreachable', async () => {
+    const fetchImpl = vi.fn(async () => {
+      throw new Error('getaddrinfo ENOTFOUND');
+    });
+    const voice = new ElevenLabsVoice(CONFIG, fetchImpl as unknown as typeof fetch);
+
+    await expect(voice.transcribe(CLIP, 'a.webm', 'audio/webm')).rejects.toThrow(/Could not reach/);
+  });
+
+  it('takes the transcription model from the environment', async () => {
+    const fetchImpl = vi.fn(async () => heard({ text: 'hello' }));
+    const voice = ElevenLabsVoice.fromEnvironment(
+      { ELEVENLABS_API_KEY: KEY, ELEVENLABS_STT_MODEL_ID: 'scribe_v1' } as NodeJS.ProcessEnv,
+      fetchImpl as unknown as typeof fetch
+    );
+
+    await voice.transcribe(CLIP, 'a.webm', 'audio/webm');
+
+    const form = (fetchImpl.mock.calls[0] as unknown as [string, RequestInit])[1].body as FormData;
+    expect(form.get('model_id')).toBe('scribe_v1');
   });
 });
