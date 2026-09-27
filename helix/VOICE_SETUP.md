@@ -1,4 +1,52 @@
-# Giving Helix a voice
+# Giving Helix a voice — and something to say
+
+Two separate keys, and he needs both to hold a conversation:
+
+| what | variable | gives him |
+| --- | --- | --- |
+| Anthropic | `ANTHROPIC_API_KEY` | the answer |
+| ElevenLabs | `ELEVENLABS_API_KEY` + `ELEVENLABS_VOICE_ID` | the voice to say it in |
+
+With only the Anthropic key he answers in text. With only the ElevenLabs key
+he can speak a line you give him but cannot think of one himself.
+
+## Asking him something
+
+Open the console with `Ctrl+K` and type a question. Anything ending in `?`
+is treated as one, so you do not need a command word:
+
+```
+what is my storage ceiling?
+```
+
+He answers from your vault, shows which notes he used, and says it aloud if
+the voice is set up. `ASK <question>` does the same thing explicitly.
+
+He answers **only** from your notes and what he has been told to remember. If
+nothing in the vault covers it, he says so rather than filling the gap — the
+console prints *"Not from your notes — he was just talking"* when the reply
+was conversation rather than fact.
+
+## The Anthropic key
+
+Get one at [console.anthropic.com](https://console.anthropic.com). Then:
+
+```powershell
+$env:ANTHROPIC_API_KEY = "sk-ant-..."
+```
+
+Or in `.env` beside `package.json`, with the others:
+
+```
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+The **Mind** light in the corner reads *on* once it is set;
+`/ask/status` says which variable is missing if it is not.
+
+---
+
+# The ElevenLabs voice
 
 Speech goes through [ElevenLabs](https://elevenlabs.io). Two environment
 variables and he talks.

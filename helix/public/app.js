@@ -146,6 +146,7 @@
           'sig-youtube': services.youtube === 'authenticated',
           'sig-generators': services.generators === 'available',
           'sig-voice': services.voice === 'available',
+          'sig-mind': services.mind === 'available',
         };
         for (var id in states) {
           if (Object.prototype.hasOwnProperty.call(states, id)) {
@@ -156,7 +157,7 @@
       .catch(function () {
         // Unknown is its own state: an unreachable server is not the same as a
         // subsystem reporting that it is disconnected.
-        var ids = ['sig-gmail', 'sig-youtube', 'sig-generators', 'sig-voice'];
+        var ids = ['sig-gmail', 'sig-youtube', 'sig-generators', 'sig-voice', 'sig-mind'];
         for (var i = 0; i < ids.length; i += 1) el(ids[i]).dataset.state = 'fault';
       });
   }
@@ -344,6 +345,45 @@
       .catch(function (err) { busy(-1); throw err; });
   }
 
+  /* ------------------------------------------------------------------- ask */
+
+  /**
+   * Ask Helix something, and have him say it.
+   *
+   * Speaking is attempted only when the server says it can, and a failure to
+   * speak never loses the answer — the words are the point, the voice is the
+   * delivery.
+   */
+  function ask(question) {
+    busy(1);
+    return fetch('/ask', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question: question }),
+    })
+      .then(function (res) {
+        return res.json().then(function (body) {
+          if (!res.ok) throw new Error(body.error || 'Helix could not answer.');
+          return body;
+        });
+      })
+      .then(function (body) {
+        busy(-1);
+        // The vault just told him something, so the counts may have moved.
+        if (body.canSpeak) {
+          return speak(body.answer).then(
+            function () { return body; },
+            function (err) {
+              // Said but not spoken is still said.
+              return Object.assign({}, body, { voiceError: err.message });
+            }
+          );
+        }
+        return body;
+      })
+      .catch(function (err) { busy(-1); throw err; });
+  }
+
   /* --------------------------------------------------------- console hooks */
 
   /*
@@ -373,6 +413,7 @@
       return view.mark(id) === id;
     },
     speak: speak,
+    ask: ask,
     focusNoteField: function () {
       showPanel('note-panel');
       el('note').focus();

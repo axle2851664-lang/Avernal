@@ -105,6 +105,40 @@
       },
     },
     {
+      name: 'ASK',
+      arg: '<question>',
+      hint: 'Ask Helix something — he answers from your vault, and says it',
+      network: true,
+      run: function (arg) {
+        if (!api().ask) return fail('The page is not ready yet.'), 'stay';
+        if (arg === '') {
+          report(['Type ASK followed by your question. Or just end it with a "?".']);
+          return 'stay';
+        }
+        report(['Thinking\u2026']);
+        api()
+          .ask(arg)
+          .then(function (body) {
+            var lines = [body.answer];
+            if (body.sources && body.sources.length > 0) {
+              // Which notes he used, so a wrong answer is traceable.
+              lines.push('');
+              lines.push('From: ' + body.sources.map(function (s) { return s.label; }).join(', '));
+            } else if (!body.grounded) {
+              lines.push('');
+              lines.push('Not from your notes — he was just talking.');
+            }
+            if (body.voiceError) {
+              lines.push('');
+              lines.push('(Could not speak it: ' + body.voiceError + ')');
+            }
+            report(lines);
+          })
+          .catch(function (err) { fail(err.message); });
+        return 'stay';
+      },
+    },
+    {
       name: 'SPEAK',
       arg: '<text>',
       hint: 'Say something out loud, through ElevenLabs',
@@ -326,12 +360,23 @@
     var searchTerm = null;
     if (upper.indexOf('SEARCH') === 0) searchTerm = query.slice(6).trim();
 
-    // SPEAK carries its text as an argument, so the row has to be built with
-    // that argument rather than matched as a bare command name.
-    if (upper.indexOf('SPEAK') === 0) {
-      var line = query.slice(5).trim();
-      var speakCommand = COMMANDS.filter(function (c) { return c.name === 'SPEAK'; })[0];
-      return [commandRow(speakCommand, line)];
+    // SPEAK and ASK carry their text as an argument, so the row has to be
+    // built with that argument rather than matched as a bare command name.
+    var withArgument = [['SPEAK', 5], ['ASK', 3]];
+    for (var w = 0; w < withArgument.length; w += 1) {
+      var name = withArgument[w][0];
+      if (upper.indexOf(name) !== 0) continue;
+      var rest = query.slice(withArgument[w][1]).trim();
+      var command = COMMANDS.filter(function (c) { return c.name === name; })[0];
+      return [commandRow(command, rest)];
+    }
+
+    // Anything phrased as a question is a question. Typing it is the shortest
+    // path to the thing most people open this for, and it does not shadow a
+    // command: no command name ends in a question mark.
+    if (query.slice(-1) === '?') {
+      var askCommand = COMMANDS.filter(function (c) { return c.name === 'ASK'; })[0];
+      return [commandRow(askCommand, query)];
     }
 
     var results = [];

@@ -7,6 +7,9 @@ import { GmailSync, type Email } from '../integrations/gmail.js';
 import { YouTubeSync, type Video } from '../integrations/youtube.js';
 import { generateImage, generateVideo } from '../integrations/generators.js';
 import { ElevenLabsVoice, VoiceError } from '../integrations/elevenlabs.js';
+import { HelixMind, MindError, type Exchange } from '../integrations/claude.js';
+import { SYSTEM_PROMPT, renderNotesContext } from '../core/galaxy/persona.js';
+import { groundedNotes } from '../core/galaxy/retrieval.js';
 import { TokenStore } from './token-store.js';
 import { isLoopback, requireToken } from './auth.js';
 import { draftCapture } from '../core/galaxy/capture.js';
@@ -691,6 +694,96 @@ app.post('/brain/plan', (req: Request, res: Response) => {
   );
 });
 
+/* -------------------------------------------------------------------- ask */
+
+/*
+ * Asking Helix something.
+ *
+ * This is where the pieces that already existed finally meet. The vault
+ * supplies the facts, the brain supplies what it remembers about him, the
+ * persona supplies the character, and the model supplies the sentence. None
+ * of that judgement lives here — this route is the wire.
+ */
+const mind = HelixMind.fromEnvironment();
+
+/** The last few exchanges, so a follow-up has something to refer to. */
+const HISTORY_DEPTH = 6;
+const history: Exchange[] = [];
+
+app.get('/ask/status', (_req: Request, res: Response) => {
+  res.json(mind.status());
+});
+
+app.post('/ask', async (req: Request, res: Response) => {
+  const { question } = req.body as { question?: string };
+  if (typeof question !== 'string' || question.trim() === '') {
+    return res.status(400).json({ error: 'Missing question' });
+  }
+
+  try {
+    // Facts first: whatever in the vault is actually about this question.
+    // groundedNotes returns nothing rather than the best of a bad lot, which
+    // is what keeps him from answering confidently out of an unrelated note.
+    const notes = await scanVault(VAULT_ROOT).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === 'ENOENT') return [];
+      throw error;
+    });
+    const galaxy = buildGalaxy(notes);
+    const sources = groundedNotes(galaxy, question);
+    const notesBlock = renderNotesContext(galaxy, sources);
+
+    // Then memory: what the brain considers relevant, with the reason it was
+    // chosen dropped — the model needs the fact, not the bookkeeping.
+    const context = buildContext(memory, question, {
+      sessionId: SESSION_ID,
+      currentProjectId,
+    });
+    if (context.projectId !== null) currentProjectId = context.projectId;
+    const memoryBlock = context.items.map((item) => '- ' + item.memory.text).join('\n');
+
+    const answer = await mind.answer(question, notesBlock, SYSTEM_PROMPT, {
+      memory: memoryBlock,
+      history: history.slice(-HISTORY_DEPTH),
+    });
+
+    history.push({ question, answer: answer.text });
+
+    // The exchange goes into short-term memory, which is scoped to this
+    // process and dropped when it ends. Nothing durable is written: the rules
+    // forbid an observation outliving the session, and a question asked out
+    // loud is an observation, not an instruction to remember it.
+    try {
+      memory.remember({
+        category: 'short-term',
+        text: 'Asked: ' + question,
+        reason: 'Said in this session',
+        source: { origin: 'observation', detail: 'ask' },
+        sessionId: SESSION_ID,
+      });
+    } catch {
+      // A refused memory must not cost him his answer.
+    }
+
+    res.json({
+      answer: answer.text,
+      grounded: answer.grounded,
+      // Which notes were used, so a wrong answer is traceable to its source.
+      sources: sources.map((source) => ({
+        id: source.id,
+        label: galaxy.nodes[source.id]?.label ?? null,
+      })),
+      usedMemory: context.items.length,
+      canSpeak: voice.configured,
+    });
+  } catch (error) {
+    if (error instanceof MindError) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    console.error('Ask failed:', error);
+    res.status(500).json({ error: 'Helix could not answer.' });
+  }
+});
+
 // Health check
 app.get('/health', (_req: Request, res: Response) => {
   res.json({
@@ -701,6 +794,7 @@ app.get('/health', (_req: Request, res: Response) => {
       youtube: tokenStore.has('youtube') ? 'authenticated' : 'not authenticated',
       generators: 'available',
       voice: voice.configured ? 'available' : 'not configured',
+      mind: mind.configured ? 'available' : 'not configured',
     },
   });
 });
