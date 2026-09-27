@@ -1,9 +1,13 @@
 /*
  * Main screen wiring.
  *
- * Two jobs: keep the HUD showing what the server actually reports, and run the
+ * Two jobs: keep the one line of state under the wordmark honest, and run the
  * note and generate controls. The controls behave exactly as they did before
- * the screen was rebuilt — same endpoints, same payloads, same messages.
+ * the screen was stripped back — same endpoints, same payloads, same messages.
+ *
+ * Everything the old HUD showed on the wall — counts, clock, round trip, how
+ * long the page has been open — is still measured here and still reported, by
+ * the ACTIVITY command. It is kept off the screen, not thrown away.
  */
 (function () {
   'use strict';
@@ -14,26 +18,6 @@
 
   function clockOf(date) {
     return pad(date.getHours()) + ':' + pad(date.getMinutes()) + ':' + pad(date.getSeconds());
-  }
-
-  /**
-   * Write a readout, and mark it only when the value actually changed.
-   *
-   * The flash is the HUD's way of saying something moved. Re-running it on
-   * every poll would make a still vault look busy, so the comparison against
-   * what is already on screen is the point of this helper, not an
-   * optimisation.
-   */
-  function setReadout(id, value) {
-    var node = el(id);
-    var text = String(value);
-    if (node.textContent === text) return;
-    node.textContent = text;
-    node.classList.remove('hx-readout__value--changed');
-    // Reading offsetWidth restarts the animation; without it the class goes
-    // straight back on in the same frame and nothing replays.
-    void node.offsetWidth;
-    node.classList.add('hx-readout__value--changed');
   }
 
   /* ------------------------------------------------------- activity line */
@@ -53,24 +37,16 @@
 
   function plural(n, word) { return n + ' ' + word + (n === 1 ? '' : 's'); }
 
-  function setLink(text, fault) {
-    var link = el('hud-link');
-    link.textContent = text;
-    link.style.color = fault ? 'var(--hx-alert)' : '';
-  }
-
-  /** Notes that nothing links to and that link to nothing. */
-  function countUnlinked(galaxy) {
-    var linked = {};
-    for (var i = 0; i < galaxy.links.length; i += 1) {
-      linked[galaxy.links[i].source] = true;
-      linked[galaxy.links[i].target] = true;
-    }
-    var alone = 0;
-    for (var n = 0; n < galaxy.nodes.length; n += 1) {
-      if (linked[galaxy.nodes[n].id] !== true) alone += 1;
-    }
-    return alone;
+  /**
+   * The one line of state on the screen.
+   *
+   * It answers the only two questions the screen has to answer without being
+   * asked: is Helix reading the vault, and what is in it.
+   */
+  function setSub(text, fault) {
+    var sub = el('core-sub');
+    sub.textContent = text;
+    sub.classList.toggle('is-fault', Boolean(fault));
   }
 
   // The last successful reads, kept so the command console can answer from
@@ -93,18 +69,12 @@
         lastLatency = Math.round(window.performance.now() - started);
         lastSyncAt = new Date();
         lastGalaxy = galaxy;
-        el('tech-latency').textContent = lastLatency + ' ms';
-        el('tech-sync').textContent = 'Sync ' + clockOf(lastSyncAt);
-
-        setReadout('hud-nodes', galaxy.nodes.length);
-        setReadout('hud-links', galaxy.links.length);
-        setReadout('hud-groups', galaxy.groups.length);
-        setReadout('hud-orphans', countUnlinked(galaxy));
-        el('core-sub').textContent =
+        setSub(
           galaxy.nodes.length === 0
             ? 'Vault empty'
-            : plural(galaxy.nodes.length, 'note') + ' · ' + plural(galaxy.links.length, 'link');
-        setLink('Online', false);
+            : plural(galaxy.nodes.length, 'note') + ' · ' + plural(galaxy.links.length, 'link'),
+          false
+        );
 
         // Drawing is caught separately. A fault in the visualisation is not a
         // fault in the vault, and reporting it as one would send someone
@@ -118,14 +88,11 @@
         }
       })
       .catch(function (err) {
-        // The readouts stay as dashes rather than showing a number that is not
-        // true. Saying the link is down is the honest reading, and the last
-        // sync time is left alone because it is still the last time this page
-        // did read the vault.
-        el('core-sub').textContent = 'Vault unreadable';
+        // No count is shown rather than one that is not true. The last sync
+        // time is left alone, because it is still the last time this page did
+        // read the vault.
+        setSub('Vault unreadable', true);
         lastLatency = null;
-        el('tech-latency').textContent = '— ms';
-        setLink('Offline', true);
         console.warn('Could not read the galaxy:', err.message);
       })
       .then(function () { busy(-1); });
@@ -164,43 +131,52 @@
 
   var openedAt = Date.now();
 
-  function tickClock() {
-    el('hud-clock').textContent = clockOf(new Date());
-
-    // How long this page has been open. Useful on a screen left running, and
-    // the one number here that is about the browser rather than the vault.
+  /** How long this page has been open. Read on demand, so nothing ticks. */
+  function uptime() {
     var up = Math.floor((Date.now() - openedAt) / 1000);
-    el('tech-uptime').textContent =
-      'Up ' + pad(Math.floor(up / 3600)) + ':' + pad(Math.floor(up / 60) % 60) + ':' + pad(up % 60);
+    return pad(Math.floor(up / 3600)) + ':' + pad(Math.floor(up / 60) % 60) + ':' + pad(up % 60);
   }
-
-  el('hud-origin').textContent = window.location.host || 'file';
-  tickClock();
-  window.setInterval(tickClock, 1000);
 
   loadGalaxy();
   loadHealth();
 
-  /* ----------------------------------------------------------------- tabs */
+  /* ---------------------------------------------------------------- sheet */
+
+  /*
+   * The controls live in a sheet that is shut until something asks for it.
+   *
+   * There used to be a tab bar holding one of the two panels permanently open.
+   * That put a form on the screen at all times for the sake of reaching it in
+   * one click, which the console already does by name. Shut, the screen is the
+   * sphere and nothing else.
+   */
+  var PANELS = { 'note-panel': 'Note', 'gen-panel': 'Generate' };
 
   function showPanel(panelId) {
-    var found = false;
-    document.querySelectorAll('.hx-tab').forEach(function (t) {
-      var mine = t.dataset.panel === panelId;
-      if (mine) found = true;
-      t.classList.toggle('active', mine);
-    });
-    if (!found) return false;
-    ['note-panel', 'gen-panel'].forEach(function (id) {
+    if (!Object.prototype.hasOwnProperty.call(PANELS, panelId)) return false;
+    el('sheet-title').textContent = PANELS[panelId];
+    Object.keys(PANELS).forEach(function (id) {
       el(id).hidden = id !== panelId;
     });
+    el('sheet').hidden = false;
     return true;
   }
 
-  document.querySelectorAll('.hx-tab').forEach(function (tab) {
-    tab.addEventListener('click', function () {
-      showPanel(tab.dataset.panel);
-    });
+  function hideSheet() {
+    if (el('sheet').hidden) return false;
+    el('sheet').hidden = true;
+    return true;
+  }
+
+  el('sheet-close').addEventListener('click', hideSheet);
+
+  // Escape shuts the sheet — but only when the console is not the thing on
+  // top. The console owns Escape while it is open, and stealing it here would
+  // close the sheet out from under it.
+  document.addEventListener('keydown', function (event) {
+    if (event.key !== 'Escape') return;
+    if (!el('cmd').hidden) return;
+    if (hideSheet()) event.preventDefault();
   });
 
   /* ----------------------------------------------------------------- notes */
@@ -400,7 +376,7 @@
       return {
         syncedAt: lastSyncAt === null ? null : clockOf(lastSyncAt),
         latencyMs: lastLatency,
-        uptime: el('tech-uptime').textContent.replace(/^Up /, ''),
+        uptime: uptime(),
         inFlight: inFlight,
       };
     },

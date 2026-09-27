@@ -71,7 +71,11 @@ html { background: var(--hx-bg); }
 
 body {
   margin: 0;
-  padding: var(--hx-gap-xl) var(--hx-gap) calc(var(--hx-gap-xl) * 1.5);
+  /* No padding here. The stage is exactly one viewport tall and the sheet is
+     fixed to the foot, so a gutter on the body only pushes the stage past the
+     bottom of the window and puts a scrollbar on a screen that has nothing to
+     scroll. Everything that needs a gutter carries its own. */
+  padding: 0;
   background: var(--hx-bg);
   color: var(--hx-text);
   font: 15px/1.6 var(--hx-font);
@@ -112,42 +116,6 @@ body > * { position: relative; z-index: 1; }
 .hx-shell {
   max-width: 800px;
   margin: 0 auto;
-}
-
-/* ------------------------------------------------------------------ header */
-
-.hx-head {
-  margin-bottom: var(--hx-gap-xl);
-}
-
-.hx-head__mark {
-  display: flex;
-  align-items: baseline;
-  gap: 0.75rem;
-}
-
-.hx-head h1 {
-  margin: 0;
-  font-size: 1.05rem;
-  font-weight: 500;
-  letter-spacing: 0.34em;
-  text-transform: uppercase;
-  text-shadow: 0 0 22px rgb(255 255 255 / 18%);
-}
-
-/* Thin rule that runs out from the wordmark to the edge — the HUD device that
-   does the most work for the least ink. */
-.hx-head__rule {
-  flex: 1;
-  height: 1px;
-  background: linear-gradient(to right, var(--hx-line-strong), transparent);
-}
-
-.hx-sub {
-  margin: var(--hx-gap) 0 0;
-  max-width: 54ch;
-  color: var(--hx-text-dim);
-  font-size: 0.82rem;
 }
 
 /* -------------------------------------------------------------- primitives */
@@ -299,57 +267,6 @@ select.hx-field {
 
 .hx-status.error { color: var(--hx-alert); }
 
-/* --------------------------------------------------------------------- nav */
-
-.hx-tabs {
-  display: flex;
-  gap: 0;
-  margin-bottom: var(--hx-gap-lg);
-  border-bottom: 1px solid var(--hx-line);
-}
-
-.hx-tab {
-  position: relative;
-  padding: 0.7rem 1.25rem;
-  background: transparent;
-  color: var(--hx-text-faint);
-  border: 0;
-  font-family: var(--hx-font-mono);
-  font-size: var(--hx-label-size);
-  letter-spacing: var(--hx-label-tracking);
-  text-transform: uppercase;
-  cursor: pointer;
-  transition: color var(--hx-fast) var(--hx-ease);
-}
-
-.hx-tab:hover { color: var(--hx-text-dim); }
-
-.hx-tab:focus-visible {
-  outline: none;
-  color: var(--hx-text);
-  box-shadow: inset 0 0 0 1px var(--hx-line-active);
-}
-
-/* The active marker sits on the shared bottom border, so selection reads as a
-   position along the rule rather than as a filled pill. */
-.hx-tab::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: -1px;
-  height: 1px;
-  background: transparent;
-  transition: background-color var(--hx-fast) var(--hx-ease);
-}
-
-.hx-tab.active { color: var(--hx-text); }
-
-.hx-tab.active::after {
-  background: var(--hx-text);
-  box-shadow: 0 0 10px rgb(255 255 255 / 45%);
-}
-
 /* ------------------------------------------------------------------ layout */
 
 .hx-row {
@@ -360,8 +277,6 @@ select.hx-field {
 }
 
 .hx-row > * { flex: 1 1 130px; }
-
-.hx-stack + .hx-stack { margin-top: var(--hx-gap-lg); }
 
 /* ----------------------------------------------------------------- results */
 
@@ -406,16 +321,11 @@ a:hover { color: var(--hx-text); border-color: var(--hx-line-active); }
 @media (max-width: 640px) {
   :root { --hx-gap-lg: 1.35rem; --hx-gap-xl: 2.25rem; }
 
-  body { padding: var(--hx-gap-xl) 1rem 3rem; }
-
-  .hx-head h1 { letter-spacing: 0.22em; }
-
   /* 16px keeps iOS Safari from zooming the page in on focus, and the taller
      padding brings every control up to a 44px tap target. */
   .hx-field { font-size: 16px; padding: 0.75rem; }
   select.hx-field { height: 48px; }
   .hx-btn { padding: 0.95rem 1rem; }
-  .hx-tab { padding: 0.7rem 0.9rem; }
 }
 
 /* Someone who has asked for less motion gets none of it. The disabled-button
@@ -438,9 +348,10 @@ a:hover { color: var(--hx-text); border-color: var(--hx-line-active); }
 
 /* ================================================================== stage ==
  *
- * The main screen. One focal point — the galaxy — with everything else pushed
- * to the edges as thin readouts, so the hierarchy is: visualisation, then
- * status, then controls.
+ * The main screen. One focal point — the galaxy — and almost nothing else:
+ * the wordmark with a single line of state at the centre, the subsystem dots
+ * and the way into the console along the foot. Controls are in a sheet that is
+ * shut until asked for.
  */
 
 .hx-main {
@@ -451,14 +362,17 @@ a:hover { color: var(--hx-text); border-color: var(--hx-line-active); }
 
 .hx-stage {
   position: relative;
-  /* The sphere is the screen. The cap keeps a hint of the console visible
-     below it on a short laptop window, so nothing looks like the whole page. */
-  height: min(88vh, 940px);
+  /* The sphere is the screen. Nothing sits below it now, so it takes the
+     viewport: the sheet is an overlay, not a rail underneath. svh is the
+     honest height on a phone, where vh counts the space under the browser's
+     own chrome and would hide the HUD row behind it. */
+  height: 100vh;
+  height: 100svh;
   min-height: 460px;
 }
 
-/* The canvas fills the stage; HUD elements are positioned against it, not the
-   viewport, so nothing overlaps the console at any height. */
+/* The canvas fills the stage; the HUD is positioned against it, not the
+   viewport, so the two stay together at any height. */
 #galaxy {
   display: block;
   width: 100%;
@@ -467,60 +381,33 @@ a:hover { color: var(--hx-text); border-color: var(--hx-line-active); }
 
 /* ------------------------------------------------------------------- HUD */
 
+/*
+ * The whole permanent information layer: which subsystems are up, and the way
+ * into the console. One row along the foot of the stage.
+ *
+ * It was four corner stacks of eleven readouts — counts, clock, origin, round
+ * trip, uptime, network. All of it is still measured, and ACTIVITY reports it
+ * on request. On the wall it meant the screen was never quiet, and a number
+ * nobody is reading is just texture.
+ */
 .hx-hud {
   position: absolute;
-  inset: 0;
-  pointer-events: none;
-  display: grid;
-  grid-template-columns: auto auto;
-  grid-template-rows: auto 1fr auto;
+  inset: auto 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
   gap: var(--hx-gap);
   padding: var(--hx-gap-lg);
+  /* The stage is underneath; only the button wants the pointer. */
+  pointer-events: none;
 }
 
-/* Corner cells. Each is a stack of readouts aligned to its own corner, so the
-   text edges line up with the stage edge rather than drifting. */
-.hx-hud__corner {
+.hx-hud__signals {
   display: flex;
-  flex-direction: column;
-  gap: 0.85rem;
-  align-self: start;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.25rem;
 }
-
-.hx-hud__corner--tr, .hx-hud__corner--br { text-align: right; }
-.hx-hud__corner--bl, .hx-hud__corner--br { align-self: end; }
-/* Each corner cell hugs its own text. Without this the left cells stretch
-   across their whole grid track, which is invisible but puts a wide empty box
-   over the middle of the stage. */
-.hx-hud__corner--tl, .hx-hud__corner--bl { justify-self: start; }
-
-.hx-hud__corner--tl { grid-area: 1 / 1; }
-.hx-hud__corner--tr { grid-area: 1 / 2; justify-self: end; }
-.hx-hud__corner--bl { grid-area: 3 / 1; }
-.hx-hud__corner--br { grid-area: 3 / 2; justify-self: end; }
-
-/* A readout is a caption over a value. The caption carries the units so the
-   value itself can stay large and bare. */
-.hx-readout__key {
-  display: block;
-  color: var(--hx-text-faint);
-  font-family: var(--hx-font-mono);
-  font-size: var(--hx-label-size);
-  letter-spacing: var(--hx-label-tracking);
-  text-transform: uppercase;
-}
-
-.hx-readout__value {
-  display: block;
-  margin-top: 0.2rem;
-  color: var(--hx-text);
-  font-family: var(--hx-font-mono);
-  font-size: 0.95rem;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.04em;
-}
-
-.hx-readout__value--sm { font-size: 0.78rem; color: var(--hx-text-dim); }
 
 /* A system indicator: a dot and a word. State lives in a data attribute so the
    script sets one thing and the stylesheet decides how it reads. */
@@ -534,8 +421,6 @@ a:hover { color: var(--hx-text); border-color: var(--hx-line-active); }
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
-
-.hx-hud__corner--tr .hx-signal, .hx-hud__corner--br .hx-signal { flex-direction: row-reverse; }
 
 .hx-signal::before {
   content: '';
@@ -604,208 +489,116 @@ a:hover { color: var(--hx-text); border-color: var(--hx-line-active); }
   text-transform: uppercase;
 }
 
-/* ----------------------------------------------------------------- console */
+/* The one place on the main screen that is allowed colour, and only to say
+   the vault could not be read. */
+.hx-core__sub.is-fault { color: var(--hx-alert); }
 
-/* The controls, integrated as a bottom rail rather than floated cards: one
-   rule across the top, tabs on that rule, contents in open space below. */
-.hx-console {
-  max-width: 860px;
-  margin: 0 auto;
-  padding: 0 var(--hx-gap) var(--hx-gap-xl);
+/* ------------------------------------------------------------------- sheet */
+
+/*
+ * The note and generate controls, in a sheet against the foot of the screen.
+ *
+ * Shut by default. A tab strip holding one of them permanently open put a form
+ * on the screen at all times to save a click the console already saves, and it
+ * cost the composition its quiet.
+ */
+.hx-sheet {
+  position: fixed;
+  inset: auto 0 0;
+  z-index: 2;
+  max-height: 72vh;
+  overflow-y: auto;
+  padding: var(--hx-gap-lg) var(--hx-gap) var(--hx-gap-xl);
+  background: var(--hx-bg);
+  border-top: 1px solid var(--hx-line);
+  animation: hx-sheet-in 220ms var(--hx-ease);
 }
 
-.hx-console .hx-tabs { margin-bottom: var(--hx-gap-lg); }
+.hx-sheet[hidden] { display: none; }
 
-/* Panels in the console carry no border of their own — the tab rule above
-   already bounds them, and a box here would undo the whole composition. */
-.hx-console .hx-panel {
+@keyframes hx-sheet-in {
+  from { opacity: 0; translate: 0 8px; }
+  to { opacity: 1; translate: 0 0; }
+}
+
+.hx-sheet__head,
+.hx-sheet > .hx-panel {
+  max-width: 860px;
+  margin: 0 auto;
+}
+
+.hx-sheet__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--hx-gap-lg);
+}
+
+.hx-sheet__close {
+  background: none;
+  border: 1px solid var(--hx-line);
+  color: var(--hx-text-faint);
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  font-family: var(--hx-font-mono);
+  font-size: var(--hx-label-size);
+  letter-spacing: var(--hx-label-tracking);
+  text-transform: uppercase;
+}
+
+.hx-sheet__close:hover { color: var(--hx-text); border-color: var(--hx-line-strong); }
+
+/* Panels in the sheet carry no box of their own — the sheet's own top rule
+   already bounds them, and a border inside a border reads as a card. */
+.hx-sheet .hx-panel {
   padding: 0;
   background: none;
   border: 0;
 }
 
-.hx-console .hx-panel::before, .hx-console .hx-panel::after { display: none; }
+.hx-sheet .hx-panel::before, .hx-sheet .hx-panel::after { display: none; }
 
 /* -------------------------------------------------------------- responsive */
 
 @media (max-width: 820px) {
-  .hx-stage { height: min(74vh, 640px); }
   .hx-hud { padding: var(--hx-gap); gap: 0.5rem; }
-  .hx-readout__value { font-size: 0.82rem; }
 }
 
 @media (max-width: 560px) {
-  /* Four corners is too much furniture at this width. The lower two are
-     dropped rather than shrunk: the subsystem states they carry are the least
-     urgent thing on the screen, and there is no room to hold them clear of
-     the ring. */
-  .hx-hud__corner--bl, .hx-hud__corner--br { display: none; }
-
-  /* The remaining readouts become a strip along the top rather than two
-     corner stacks. A stack is taller here than the space beside the ring, so
-     overlaying it would lay text across the visualisation however small the
-     ring got; in rows it clears the ring entirely. */
+  /* Five dots and a button will not sit on one line here. The dots wrap and
+     the button goes under them, which is the whole adaptation — there is
+     nothing else at the edges left to rearrange. */
   .hx-hud {
-    display: flex;
     flex-direction: column;
+    align-items: flex-start;
     gap: 0.9rem;
   }
 
-  .hx-hud__corner--tl, .hx-hud__corner--tr {
-    flex-direction: row;
-    flex-wrap: wrap;
-    gap: 0.3rem 1.35rem;
-    text-align: left;
-  }
-
-  /* Taller than it needs to be for the ring alone: the top strip takes two
-     rows at this width, and the stage has to be deep enough that the ring
-     still centres below them. */
-  /* Padded at the top by roughly the height of the readout strip, so the
-     sphere centres in what is left rather than behind it. There is no room
-     at this width to put the readouts beside the sphere instead. */
-  .hx-stage { height: 62vh; min-height: 400px; padding-top: 6.5rem; }
   .hx-core h1 { letter-spacing: 0.32em; text-indent: 0.32em; }
-
-  /* The top strip already carries the note and link counts at this width, so
-     the line under the wordmark is a second copy of them — over the densest
-     part of the shell, where it is the hardest thing on the screen to read.
-     One of the two has to go, and it is this one. */
-  .hx-core__sub { display: none; }
 }
 
 /* ==================================================================== HUD ==
  *
- * The information layer. Three tiers, and the type carries the tier:
+ * The information layer, and there is very little of it. Two tiers:
  *
- *   primary    .hx-readout__value        counts that answer "what is in here"
- *   secondary  .hx-readout__value--sm    state that answers "is it working"
- *   metadata   .hx-tech                  provenance — when, how long, how old
+ *   state      .hx-core__sub    what is in the vault, or that it cannot be read
+ *   subsystem  .hx-signal       a dot per service: up, down, or unreachable
  *
- * Anything that cannot be measured does not get a readout. The only things
- * here with no data behind them are the corner brackets and the sweep, which
- * are frame furniture and say nothing.
+ * Anything that cannot be measured does not get a place on the screen, and
+ * most of what can be measured does not either — it is one ACTIVITY away.
  */
-
-/* A readout brightens for a moment when its number actually changes, so a
-   note landing in the vault is visible without anything having to announce
-   it. Applied by script only on a real change, never on a repaint. */
-@keyframes hx-readout-change {
-  0% { color: #fff; text-shadow: 0 0 14px rgb(255 255 255 / 70%); }
-  100% { color: var(--hx-text); text-shadow: none; }
-}
-
-.hx-readout__value--changed {
-  animation: hx-readout-change 900ms var(--hx-ease);
-}
-
-/* ------------------------------------------------------- corner brackets */
-
-/* Frame furniture: four hairline corners on the stage. Decorative, and
-   deliberately the only thing here that is. */
-.hx-frame {
-  position: absolute;
-  inset: 0.75rem;
-  pointer-events: none;
-}
-
-.hx-frame span {
-  position: absolute;
-  width: 14px;
-  height: 14px;
-  border: 1px solid var(--hx-line-strong);
-}
-
-.hx-frame span:nth-child(1) { top: 0; left: 0; border-right: 0; border-bottom: 0; }
-.hx-frame span:nth-child(2) { top: 0; right: 0; border-left: 0; border-bottom: 0; }
-.hx-frame span:nth-child(3) { bottom: 0; left: 0; border-right: 0; border-top: 0; }
-.hx-frame span:nth-child(4) { bottom: 0; right: 0; border-left: 0; border-top: 0; }
-
-/* ------------------------------------------------------------- the sweep */
-
-/* One faint line crossing the stage every half minute. It reports nothing;
-   it is there so the frame does not sit perfectly still. A transform-only
-   animation, so it runs on the compositor and never touches layout. */
-.hx-sweep {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  pointer-events: none;
-}
-
-.hx-sweep::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 0;
-  height: 1px;
-  background: linear-gradient(
-    to right,
-    transparent,
-    rgb(255 255 255 / 22%) 30%,
-    rgb(255 255 255 / 22%) 70%,
-    transparent
-  );
-  will-change: transform, opacity;
-  animation: hx-sweep-down 30s var(--hx-ease) infinite;
-}
-
-@keyframes hx-sweep-down {
-  0% { transform: translateY(0); opacity: 0; }
-  /* Visible for roughly four of the thirty seconds. */
-  4% { opacity: 0.85; }
-  15% { opacity: 0; }
-  16%, 100% { transform: translateY(100%); opacity: 0; }
-}
-
-/* ---------------------------------------------------------- metadata tier */
-
-/* Provenance, along the foot of the stage: when the vault was last read, how
-   long that read took, how long this page has been open. The dimmest type on
-   the screen, because none of it is worth reading unless you went looking. */
-/*
- * Sits on the console rail rather than inside the stage. The stage is the
- * sphere now, edge to edge, and dim text over a field of points is text
- * nobody can read.
- */
-.hx-tech-strip {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 0.75rem;
-  margin-bottom: var(--hx-gap-lg);
-  pointer-events: none;
-}
-
-.hx-tech {
-  color: var(--hx-text-faint);
-  font-family: var(--hx-font-mono);
-  font-size: 0.62rem;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  opacity: 0.72;
-}
-
-/* The divider between metadata fields: a rule, not a bullet. */
-.hx-tech-rule {
-  width: 18px;
-  height: 1px;
-  background: var(--hx-line);
-}
 
 /* --------------------------------------------------------- activity line */
 
-/* Sits on the console's own rule and runs while a request is in flight. It is
+/* A hairline across the foot of the stage while a request is in flight. It is
    an activity indicator, not a progress bar: the server answers these in one
-   shot and reports no fraction, so showing a filling bar would be inventing
-   a number. */
+   shot and reports no fraction, so a filling bar would be inventing a number. */
 .hx-activity {
-  position: relative;
+  position: absolute;
+  inset: auto 0 0;
   height: 1px;
-  margin-top: -1px; /* Rides the tab strip's border rather than adding a line. */
   overflow: hidden;
+  pointer-events: none;
 }
 
 .hx-activity[hidden] { display: none; }
@@ -824,19 +617,6 @@ a:hover { color: var(--hx-text); border-color: var(--hx-line-active); }
 @keyframes hx-activity-run {
   from { transform: translateX(-100%); }
   to { transform: translateX(386%); }
-}
-
-/* -------------------------------------------------------------- narrower */
-
-@media (max-width: 820px) {
-  .hx-frame { inset: 0.5rem; }
-  .hx-frame span { width: 10px; height: 10px; }
-}
-
-@media (max-width: 560px) {
-  /* Metadata is the first thing to go when there is no room for it: it is the
-     tier nobody is looking for. The counts and the subsystem states stay. */
-  .hx-tech-strip { display: none; }
 }
 
 /* ================================================================ console ==
@@ -1018,16 +798,15 @@ a:hover { color: var(--hx-text); border-color: var(--hx-line-active); }
 
 /* ------------------------------------------------------------- open button */
 
-/* The only affordance advertising the console. It lives on the tab strip
-   rather than in a HUD corner: the corners are readouts, this is a control,
+/* The only affordance advertising the console, and now the only button on the
+   main screen. It sits at the foot of the stage opposite the subsystem dots,
    and the lower corners are dropped at phone widths where a visible way in
    matters most — there may be no keyboard to press Ctrl+K on. */
 .hx-cmd-open {
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
-  margin-left: auto;
-  padding: 0.7rem 0 0.7rem 1rem;
+  padding: 0.7rem 0;
   background: none;
   border: 0;
   color: var(--hx-text-faint);
@@ -1036,7 +815,7 @@ a:hover { color: var(--hx-text); border-color: var(--hx-line-active); }
   letter-spacing: var(--hx-label-tracking);
   text-transform: uppercase;
   cursor: pointer;
-  pointer-events: auto; /* The HUD around it does not take pointer events. */
+  pointer-events: auto; /* The HUD row around it does not take the pointer. */
   transition: color var(--hx-fast) var(--hx-ease);
 }
 

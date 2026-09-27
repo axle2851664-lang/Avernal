@@ -8,54 +8,30 @@
 <link rel="stylesheet" href="/helix.css" />
 </head>
 <body>
+<!--
+  One screen, one focal point.
+
+  Everything that is not the sphere is either a single line of state or a way
+  in to the console. The counts, the clock, the latency and the uptime are all
+  still measured and still reachable — through the ACTIVITY command, which is
+  where you go when you want numbers, rather than having them on the wall all
+  the time.
+-->
 <main class="hx-shell hx-main">
 
   <div class="hx-stage">
-    <div class="hx-sweep" aria-hidden="true"></div>
-    <div class="hx-frame" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+    <!-- The galaxy. Decorative to a screen reader: what it encodes is also
+         written out in the line under the wordmark, which is real text. -->
+    <canvas id="galaxy" aria-hidden="true"></canvas>
 
     <div class="hx-core">
       <h1>Helix</h1>
       <p class="hx-core__sub" id="core-sub">Reading vault</p>
     </div>
 
-    <!-- The galaxy. Decorative to a screen reader: every number it encodes is
-         also written out in the readouts below, which are real text. -->
-    <canvas id="galaxy" aria-hidden="true"></canvas>
-
+    <!-- The whole permanent HUD: what is running, and the way in. -->
     <div class="hx-hud">
-      <div class="hx-hud__corner hx-hud__corner--tl">
-        <span class="hx-readout">
-          <span class="hx-readout__key">Vault</span>
-          <span class="hx-readout__value" id="hud-nodes">—</span>
-        </span>
-        <span class="hx-readout">
-          <span class="hx-readout__key">Links</span>
-          <span class="hx-readout__value" id="hud-links">—</span>
-        </span>
-        <span class="hx-readout">
-          <span class="hx-readout__key">Clusters</span>
-          <span class="hx-readout__value" id="hud-groups">—</span>
-        </span>
-        <span class="hx-readout">
-          <span class="hx-readout__key">Unlinked</span>
-          <span class="hx-readout__value hx-readout__value--sm" id="hud-orphans">—</span>
-        </span>
-      </div>
-
-      <div class="hx-hud__corner hx-hud__corner--tr">
-        <span class="hx-readout">
-          <span class="hx-readout__key">Local time</span>
-          <span class="hx-readout__value" id="hud-clock">—</span>
-        </span>
-        <span class="hx-readout">
-          <span class="hx-readout__key">Origin</span>
-          <span class="hx-readout__value hx-readout__value--sm" id="hud-origin">—</span>
-        </span>
-      </div>
-
-      <div class="hx-hud__corner hx-hud__corner--bl">
-        <span class="hx-readout__key">Subsystems</span>
+      <div class="hx-hud__signals" id="signals">
         <span class="hx-signal" id="sig-gmail" data-state="unknown">Gmail</span>
         <span class="hx-signal" id="sig-youtube" data-state="unknown">YouTube</span>
         <span class="hx-signal" id="sig-generators" data-state="unknown">Generators</span>
@@ -63,37 +39,21 @@
         <span class="hx-signal" id="sig-mind" data-state="unknown">Mind</span>
       </div>
 
-      <div class="hx-hud__corner hx-hud__corner--br">
-        <span class="hx-readout">
-          <span class="hx-readout__key">Link</span>
-          <span class="hx-readout__value hx-readout__value--sm" id="hud-link">Connecting</span>
-        </span>
-        <span class="hx-readout">
-          <span class="hx-readout__key">Network</span>
-          <span class="hx-readout__value hx-readout__value--sm">Private only</span>
-        </span>
-      </div>
-    </div>
-
-  </div>
-
-  <div class="hx-console">
-    <div class="hx-tech-strip">
-      <span class="hx-tech" id="tech-sync">Sync —</span>
-      <span class="hx-tech-rule" aria-hidden="true"></span>
-      <span class="hx-tech" id="tech-latency">— ms</span>
-      <span class="hx-tech-rule" aria-hidden="true"></span>
-      <span class="hx-tech" id="tech-uptime">Up 00:00:00</span>
-    </div>
-
-    <nav class="hx-tabs">
-      <button class="hx-tab active" data-panel="note-panel">Note</button>
-      <button class="hx-tab" data-panel="gen-panel">Generate</button>
       <button type="button" class="hx-cmd-open" id="cmd-open">
         <span class="hx-cmd-open__key">Ctrl K</span> Console
       </button>
-    </nav>
+    </div>
+
     <div class="hx-activity" id="activity" hidden aria-hidden="true"></div>
+  </div>
+
+  <!-- The controls. Out of the way until asked for, by OPEN NOTE / OPEN
+       GENERATE in the console or by the button above. -->
+  <div class="hx-sheet" id="sheet" hidden>
+    <div class="hx-sheet__head">
+      <span class="hx-label" id="sheet-title">Note</span>
+      <button type="button" class="hx-sheet__close" id="sheet-close" aria-label="Close">Esc</button>
+    </div>
 
     <section class="hx-panel" id="note-panel">
       <label class="hx-label" for="note">Capture to vault</label>
@@ -158,7 +118,6 @@
     <div class="hx-cmd__foot">
       <span class="hx-tech">↑ ↓ Move</span>
       <span class="hx-tech">↵ Run</span>
-      <span class="hx-tech">Net = reaches the network</span>
     </div>
   </div>
 </div>

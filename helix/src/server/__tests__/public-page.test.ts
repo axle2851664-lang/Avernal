@@ -27,24 +27,20 @@ describe('public/index.html', () => {
       'status',
       'result',
       'gen-panel',
-      // The HUD readouts. Each is filled from a server response, so a dropped
-      // id means a number silently stops updating rather than erroring.
+      // The sheet the two panels live in.
+      'sheet',
+      'sheet-title',
+      'sheet-close',
+      // The stage, and the one line of state on it. core-sub is filled from a
+      // server response, so a dropped id means it silently stops updating.
       'galaxy',
       'core-sub',
-      'hud-nodes',
-      'hud-links',
-      'hud-groups',
-      'hud-clock',
-      'hud-origin',
-      'hud-link',
       'sig-gmail',
       'sig-youtube',
       'sig-generators',
-      // Metadata tier, and the in-flight indicator.
-      'hud-orphans',
-      'tech-sync',
-      'tech-latency',
-      'tech-uptime',
+      'sig-voice',
+      'sig-mind',
+      // The in-flight indicator.
       'activity',
       // Command console.
       'cmd',
@@ -57,11 +53,21 @@ describe('public/index.html', () => {
     expect(missing).toEqual([]);
   });
 
-  it('keeps the tab hooks the script queries and toggles', () => {
-    expect(app).toContain("querySelectorAll('.hx-tab')");
-    // Two tabs, each naming the panel it reveals.
-    expect(page).toContain('class="hx-tab active" data-panel="note-panel"');
-    expect(page).toContain('class="hx-tab" data-panel="gen-panel"');
+  it('keeps the controls shut until something asks for them', () => {
+    // The point of the sheet: the main screen is the sphere, and a form is
+    // only on it when you went for one. A tab strip holding a panel open is
+    // the easy thing to reintroduce, so both halves are pinned.
+    expect(page).toContain('class="hx-sheet" id="sheet" hidden');
+    expect(page).not.toContain('hx-tab');
+    expect(app).toContain("var PANELS = { 'note-panel': 'Note', 'gen-panel': 'Generate' };");
+  });
+
+  it('carries nothing on the wall that is not measured or a control', () => {
+    // The readouts, clock, origin, latency and uptime moved into ACTIVITY.
+    // Reintroducing one means reintroducing a line of text nobody asked for.
+    for (const gone of ['hud-nodes', 'hud-clock', 'tech-uptime', 'hx-frame', 'hx-sweep']) {
+      expect(page).not.toContain(gone);
+    }
   });
 
   it('loads the shared stylesheet rather than inlining its own look', () => {
@@ -86,7 +92,7 @@ describe('public/helix.css', () => {
   const css = readFileSync(join(PUBLIC, 'helix.css'), 'utf8');
 
   it('defines the primitives the rest of Helix is meant to reuse', () => {
-    for (const rule of ['.hx-panel', '.hx-field', '.hx-btn', '.hx-label', '.hx-status', '.hx-tab']) {
+    for (const rule of ['.hx-panel', '.hx-field', '.hx-btn', '.hx-label', '.hx-status', '.hx-sheet']) {
       expect(css).toContain(rule);
     }
   });
@@ -107,12 +113,17 @@ describe('public/helix.css', () => {
     expect(css).not.toContain('.hx-reticle');
   });
 
-  it('keeps the three HUD tiers visually distinct', () => {
-    // Primary, secondary and metadata have to differ in weight or the
-    // hierarchy is only in the markup.
-    expect(css).toContain('.hx-readout__value--sm');
-    expect(css).toContain('.hx-tech {');
-    expect(css).toContain('.hx-readout__value--changed');
+  it('keeps the two remaining HUD tiers visually distinct', () => {
+    // State and subsystem are all that is left on the screen, and they have to
+    // differ in weight or the hierarchy is only in the markup.
+    expect(css).toContain('.hx-core__sub {');
+    expect(css).toContain('.hx-signal {');
+  });
+
+  it('carries no styles for furniture the screen no longer has', () => {
+    for (const gone of ['.hx-readout', '.hx-tabs', '.hx-tech-strip', '.hx-frame']) {
+      expect(css).not.toContain(gone);
+    }
   });
 });
 
@@ -211,10 +222,18 @@ describe('public/app.js', () => {
     expect(app).toContain("fetch('/generate/' + mode");
   });
 
-  it('flashes a readout only when its value actually changed', () => {
-    // Re-running the animation on every poll would make a still vault look
-    // busy, which is the opposite of what the flash is for.
-    expect(app).toContain('if (node.textContent === text) return;');
+  it('still measures what it stopped showing', () => {
+    // The counts, round trip and uptime came off the screen, not out of the
+    // page: ACTIVITY reports them, and it reads them from here.
+    expect(app).toContain('lastLatency = Math.round(');
+    expect(app).toContain('function uptime()');
+    expect(app).toContain('uptime: uptime(),');
+  });
+
+  it('leaves Escape to the console while the console is open', () => {
+    // Both bind Escape on the document. The sheet has to stand down, or it
+    // closes out from under the dialog on top of it.
+    expect(app).toContain("if (!el('cmd').hidden) return;");
   });
 
   it('counts requests in flight rather than toggling a flag', () => {
