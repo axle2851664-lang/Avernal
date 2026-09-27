@@ -39,7 +39,17 @@
             ? 'Vault empty'
             : plural(galaxy.nodes.length, 'note') + ' · ' + plural(galaxy.links.length, 'link');
         setLink('Online', false);
-        if (view !== null) view.setData(galaxy);
+
+        // Drawing is caught separately. A fault in the visualisation is not a
+        // fault in the vault, and reporting it as one would send someone
+        // looking at their notes for a bug that is on this side of the wire.
+        if (view !== null) {
+          try {
+            view.setData(galaxy);
+          } catch (err) {
+            console.error('The galaxy could not be drawn:', err);
+          }
+        }
       })
       .catch(function (err) {
         // The readouts stay as dashes rather than showing a number that is not

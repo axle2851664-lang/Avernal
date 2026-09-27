@@ -89,6 +89,28 @@ describe('public/helix.css', () => {
   });
 });
 
+describe('public/galaxy.js', () => {
+  const galaxy = readFileSync(join(PUBLIC, 'galaxy.js'), 'utf8');
+
+  it('keeps a ceiling on everything it draws', () => {
+    // The renderer's cost is bounded by these, not by how large a vault gets.
+    for (const cap of ['MAX_NODES', 'MAX_LINKS', 'MAX_GLOW', 'MAX_PULSES']) {
+      expect(galaxy).toContain('var ' + cap + ' =');
+    }
+  });
+
+  it('stops animating when nothing can see it', () => {
+    expect(galaxy).toContain('visibilitychange');
+    expect(galaxy).toContain('IntersectionObserver');
+  });
+
+  it('pulls nothing out of thin air when the vault is empty', () => {
+    // draw() returns before touching any buffer, so an empty galaxy paints
+    // nothing rather than a decorative starfield.
+    expect(galaxy).toContain('if (points.length === 0) return;');
+  });
+});
+
 describe('public/app.js', () => {
   it('reads the HUD from the server rather than hard-coding numbers', () => {
     expect(app).toContain("fetch('/galaxy')");
@@ -98,5 +120,13 @@ describe('public/app.js', () => {
   it('still posts notes and generations to the endpoints that existed before', () => {
     expect(app).toContain("fetch('/notes'");
     expect(app).toContain("fetch('/generate/' + mode");
+  });
+
+  it('does not report a drawing fault as an unreadable vault', () => {
+    // setData is called inside the fetch promise chain, so without its own
+    // catch a rendering bug surfaces to the user as "Vault unreadable".
+    const guarded = app.slice(app.indexOf('view.setData'));
+    expect(app.slice(0, app.indexOf('view.setData'))).toContain('try {');
+    expect(guarded).toContain('} catch (err) {');
   });
 });

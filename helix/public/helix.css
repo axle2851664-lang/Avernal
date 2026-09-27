@@ -623,12 +623,19 @@ a:hover { color: var(--hx-text); border-color: var(--hx-line-active); }
   /* The tracking adds a trailing gap; pulling it back re-centres the word. */
   text-indent: 0.5em;
   text-transform: uppercase;
-  text-shadow: 0 0 40px rgb(255 255 255 / 30%);
+  /* White bloom for the glow, then a tight dark halo underneath. Over a
+     well-linked vault the shell behind this is a dense field of points, and
+     without the dark pass the wordmark dissolves into it. */
+  text-shadow: 0 0 40px rgb(255 255 255 / 30%), 0 0 12px rgb(0 0 0 / 85%),
+    0 0 4px rgb(0 0 0 / 90%);
 }
 
 .hx-core__sub {
   margin: 0.6rem 0 0;
-  color: var(--hx-text-faint);
+  /* A step brighter than the corner captions, with the same dark halo: this
+     one sits directly over the busiest part of the visualisation. */
+  color: var(--hx-text-dim);
+  text-shadow: 0 0 10px rgb(0 0 0 / 90%), 0 0 3px rgb(0 0 0 / 90%);
   font-family: var(--hx-font-mono);
   font-size: var(--hx-label-size);
   letter-spacing: var(--hx-label-tracking);
