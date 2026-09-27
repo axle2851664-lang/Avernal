@@ -50,6 +50,14 @@ export class TokenStore {
     this.persist();
   }
 
+  /** Forget a service's tokens. Returns whether there were any to forget. */
+  clear(service: string): boolean {
+    if (this.tokens[service] === undefined) return false;
+    delete this.tokens[service];
+    this.persist();
+    return true;
+  }
+
   has(service: string): boolean {
     return this.tokens[service] !== undefined;
   }

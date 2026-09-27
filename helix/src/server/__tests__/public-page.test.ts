@@ -165,8 +165,15 @@ describe('public/console.js', () => {
       join(import.meta.dirname, '..', 'index.ts'),
       'utf8'
     );
-    const paths = [...cmd.matchAll(/'(\/[a-z0-9/_-]+)'/g)].map((m) => m[1]);
-    const unknown = paths.filter((path) => !server.includes(`'${path}'`));
+    // Route patterns, with :params expanded to match a segment — the server
+    // serves /auth/gmail/start from /auth/:service/start, and a literal
+    // comparison would call that missing.
+    const routes = [...server.matchAll(/app\.(?:get|post|patch|delete)\('([^']+)'/g)].map(
+      (m) => new RegExp('^' + (m[1] ?? '').replace(/:[a-zA-Z]+/g, '[^/]+') + '$')
+    );
+
+    const paths = [...cmd.matchAll(/'(\/[a-z0-9/_-]+)'/g)].map((m) => m[1] ?? '');
+    const unknown = paths.filter((path) => !routes.some((route) => route.test(path)));
     expect(unknown).toEqual([]);
   });
 

@@ -302,7 +302,11 @@
    */
   function authLink(path, service) {
     report(['Asking the server for a link…']);
-    fetch(path)
+    // The JSON form. Without it the route redirects to Google, fetch follows
+    // it, and the console gets a cross-origin failure instead of a link —
+    // which is the wrong outcome twice over, since the point of showing the
+    // link rather than following it is that opening it is the user's move.
+    fetch(path + '?json=1', { headers: { Accept: 'application/json' } })
       .then(function (res) { return res.json(); })
       .then(function (body) {
         if (!body.authUrl) {

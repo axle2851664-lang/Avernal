@@ -12,6 +12,16 @@ import { SYSTEM_PROMPT, renderNotesContext } from '../core/galaxy/persona.js';
 import { groundedNotes } from '../core/galaxy/retrieval.js';
 import { TokenStore } from './token-store.js';
 import { isLoopback, requireToken } from './auth.js';
+import {
+  createState,
+  explainGoogleError,
+  isRelayService,
+  relayPage,
+  RELAY_SERVICES,
+  serviceLabel,
+  verifyState,
+  type RelayService,
+} from './oauth-relay.js';
 import { draftCapture } from '../core/galaxy/capture.js';
 import { buildGalaxy } from '../core/galaxy/graph.js';
 import {
@@ -166,30 +176,173 @@ app.use(express.static(join(packageRoot, 'public')));
 app.use('/generated_images', express.static(join(DATA_ROOT, 'generated_images')));
 app.use('/generated_videos', express.static(join(DATA_ROOT, 'generated_videos')));
 
-// OAuth flow start
-app.get('/auth/gmail/start', (_req: Request, res: Response) => {
-  const authUrl = gmailSync.getAuthUrl();
-  res.json({ authUrl });
+/* ------------------------------------------------------------ Google relay */
+
+/*
+ * Connecting a Google account.
+ *
+ * Helix never sees a Google password: it sends the user to Google, Google
+ * asks them, and the code Google hands back is exchanged here for tokens.
+ *
+ * Both services run the same three steps, so they share one set of routes
+ * rather than two copies that drift. The scopes are read-only and live with
+ * each integration — Helix reads mail and videos, and has no way to send,
+ * delete or modify anything.
+ */
+const relays: Readonly<Record<RelayService, { readonly getAuthUrl: () => string; readonly exchange: (code: string) => Promise<{ access_token?: string | null | undefined; refresh_token?: string | null | undefined; expiry_date?: number | null | undefined }> }>> = {
+  gmail: {
+    getAuthUrl: () => gmailSync.getAuthUrl(),
+    exchange: (code) => gmailSync.setCredentials(code),
+  },
+  youtube: {
+    getAuthUrl: () => youtubeSync.getAuthUrl(),
+    exchange: (code) => youtubeSync.setCredentials(code),
+  },
+};
+
+/*
+ * The secret that signs the `state` on the round trip.
+ *
+ * The shared token when there is one, so it survives a restart and a browser
+ * that was mid-flow still lands. Otherwise a per-process value: on loopback
+ * there is nobody else to forge one, and a restart invalidating an in-flight
+ * sign-in only costs a retry.
+ */
+const RELAY_SECRET = HELIX_TOKEN !== '' ? HELIX_TOKEN : randomUUID();
+
+/**
+ * Step one: send them to Google.
+ *
+ * A redirect, so the link can simply be clicked. `?json=1` returns the URL
+ * instead, which is what the command console uses — it shows the link rather
+ * than following it, because that decision is the user's.
+ */
+app.get('/auth/:service/start', (req: Request, res: Response) => {
+  const service = req.params.service;
+  if (!isRelayService(service)) {
+    return res.status(404).json({ error: 'Helix does not connect that service' });
+  }
+
+  const url = new URL(relays[service].getAuthUrl());
+  url.searchParams.set('state', createState(service, RELAY_SECRET));
+  const authUrl = url.toString();
+
+  if (req.query.json === '1' || req.get('accept')?.includes('application/json') === true) {
+    return res.json({ authUrl });
+  }
+  res.redirect(authUrl);
 });
 
-// OAuth callback
-app.get('/auth/gmail/callback', async (req: Request, res: Response) => {
+/**
+ * Step two: Google sends them back here.
+ *
+ * This is the one route in Helix a person arrives at by being sent, so it
+ * answers with a page rather than JSON. A wall of JSON after granting access
+ * reads as a failure even when it worked.
+ */
+app.get('/auth/:service/callback', async (req: Request, res: Response) => {
+  const service = req.params.service;
+  if (!isRelayService(service)) {
+    return res.status(404).send(relayPage({
+      ok: false,
+      title: 'Unknown service',
+      detail: 'Helix connects Gmail and YouTube. That was neither.',
+    }));
+  }
+
+  const label = serviceLabel(service);
+
+  // Google reports a refusal by redirecting here with an error rather than by
+  // failing the request, so this has to be checked before anything else.
+  if (typeof req.query.error === 'string') {
+    return res.status(400).send(relayPage({
+      ok: false,
+      title: label + ' was not connected',
+      detail: explainGoogleError(req.query.error),
+    }));
+  }
+
+  const check = verifyState(req.query.state, service, RELAY_SECRET);
+  if (!check.ok) {
+    return res.status(400).send(relayPage({
+      ok: false,
+      title: label + ' was not connected',
+      detail: check.reason,
+    }));
+  }
+
   const code = req.query.code;
-  if (!code || typeof code !== 'string') {
-    return res.status(400).json({ error: 'Missing authorization code' });
+  if (typeof code !== 'string' || code === '') {
+    return res.status(400).send(relayPage({
+      ok: false,
+      title: label + ' was not connected',
+      detail: 'Google did not send an authorisation code back.',
+    }));
   }
 
   try {
-    const tokens = await gmailSync.setCredentials(code);
-    const accessToken = tokens.access_token || '';
-    const refreshToken = tokens.refresh_token || null;
-    const expiresAt = tokens.expiry_date || Date.now() + 3600000;
+    const tokens = await relays[service].exchange(code);
+    const refreshToken = tokens.refresh_token ?? null;
 
-    tokenStore.set('gmail', { accessToken, refreshToken, expiresAt });
-    res.json({ success: true, message: 'Gmail connected successfully' });
+    tokenStore.set(service, {
+      accessToken: tokens.access_token ?? '',
+      refreshToken,
+      expiresAt: tokens.expiry_date ?? Date.now() + 3600000,
+    });
+
+    res.send(relayPage({
+      ok: true,
+      title: label + ' is connected',
+      detail:
+        refreshToken === null
+          ? 'Connected, but Google did not issue a refresh token, so this will stop working in an hour. Remove Helix at myaccount.google.com under Data & privacy, Third-party access, then connect again.'
+          : 'Helix can read your ' + label + '. It cannot send, delete or change anything.',
+    }));
   } catch (error) {
-    res.status(500).json({ error: 'Failed to authenticate with Gmail', details: String(error) });
+    // The library wraps Google's code; surface it when it is there rather
+    // than the stack, which says nothing about what to fix.
+    const raw = String((error as { message?: unknown }).message ?? error);
+    const known = /invalid_grant|invalid_client|redirect_uri_mismatch|invalid_scope/.exec(raw);
+    res.status(502).send(relayPage({
+      ok: false,
+      title: label + ' was not connected',
+      detail: known === null ? 'Google would not exchange the code.' : explainGoogleError(known[0]),
+    }));
   }
+});
+
+/** What is connected, without saying anything about the tokens themselves. */
+app.get('/auth/status', (_req: Request, res: Response) => {
+  res.json({
+    services: RELAY_SERVICES.map((service) => ({
+      service,
+      label: serviceLabel(service),
+      connected: tokenStore.has(service),
+      start: '/auth/' + service + '/start',
+    })),
+  });
+});
+
+/**
+ * Forget a connection.
+ *
+ * Local only: it drops the tokens Helix holds. The grant itself lives in the
+ * Google account and is revoked at myaccount.google.com — saying otherwise
+ * would be claiming a reach Helix does not have.
+ */
+app.post('/auth/:service/disconnect', (req: Request, res: Response) => {
+  const service = req.params.service;
+  if (!isRelayService(service)) {
+    return res.status(404).json({ error: 'Helix does not connect that service' });
+  }
+
+  const had = tokenStore.has(service);
+  tokenStore.clear(service);
+  res.json({
+    success: true,
+    forgotten: had,
+    note: 'Helix has dropped its copy. To revoke the grant itself, remove Helix at myaccount.google.com under Data & privacy, Third-party access.',
+  });
 });
 
 // Convert email to note format
@@ -276,38 +429,13 @@ ${video.description.substring(0, 1000)}${video.description.length > 1000 ? '…'
 }
 
 // YouTube OAuth flow start
-app.get('/auth/youtube/start', (_req: Request, res: Response) => {
-  const authUrl = youtubeSync.getAuthUrl();
-  res.json({ authUrl });
-});
-
-// YouTube OAuth callback
-app.get('/auth/youtube/callback', async (req: Request, res: Response) => {
-  const code = req.query.code;
-  if (!code || typeof code !== 'string') {
-    return res.status(400).json({ error: 'Missing authorization code' });
-  }
-
-  try {
-    const tokens = await youtubeSync.setCredentials(code);
-    const accessToken = tokens.access_token || '';
-    const refreshToken = tokens.refresh_token || null;
-    const expiresAt = tokens.expiry_date || Date.now() + 3600000;
-
-    tokenStore.set('youtube', { accessToken, refreshToken, expiresAt });
-    res.json({ success: true, message: 'YouTube connected successfully. You can now sync videos.' });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to authenticate with YouTube', details: String(error) });
-  }
-});
-
 // Fetch and sync YouTube videos
 app.post('/sync/youtube/videos', async (_req: Request, res: Response) => {
   const tokenData = tokenStore.get('youtube');
   if (!tokenData) {
     return res
       .status(401)
-      .json({ error: 'YouTube not authenticated. Visit http://localhost:3000/auth/youtube/start' });
+      .json({ error: 'YouTube not authenticated. Open /auth/youtube/start first' });
   }
 
   try {
@@ -808,7 +936,7 @@ app.listen(PORT, HOST, () => {
       ? 'Local only. Set HOST and HELIX_TOKEN to reach it from another device.'
       : 'Token required. Open the URL above on your phone to sign it in.'
   );
-  console.log(`OAuth start: GET http://${HOST}:${PORT}/auth/gmail/start`);
+  console.log(`Connect Google: http://${HOST}:${PORT}/auth/gmail/start${suffix === '' ? '' : suffix.slice(1)}`);
 }).on('error', (err: NodeJS.ErrnoException) => {
   if (err.code === 'EADDRINUSE') {
     console.error(`Port ${PORT} is already in use. Stop the other process or set PORT.`);
