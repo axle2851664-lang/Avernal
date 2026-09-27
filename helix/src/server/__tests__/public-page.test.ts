@@ -119,6 +119,16 @@ describe('public/helix.css', () => {
 describe('public/galaxy.js', () => {
   const galaxy = readFileSync(join(PUBLIC, 'galaxy.js'), 'utf8');
 
+  it('builds the aurora once rather than every frame', () => {
+    // The sprite is where the expensive drawing lives — wide shadows for soft
+    // edges — and it is only affordable because it happens at mount.
+    expect(galaxy).toContain('function makeAuroraSprite()');
+    expect(galaxy).toContain('var aurora = makeAuroraSprite();');
+    // Nothing in the frame loop may rebuild it.
+    const draw = galaxy.slice(galaxy.indexOf('function draw()'));
+    expect(draw).not.toContain('makeAuroraSprite(');
+  });
+
   it('sizes the shell from the canvas, not from a ring that no longer exists', () => {
     expect(galaxy).toContain('function shellRadius()');
     expect(galaxy).not.toContain('reticle');
