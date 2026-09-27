@@ -177,6 +177,9 @@
     var pointerX = -1;
     var pointerY = -1;
     var hover = -1;
+    // A node the command console asked to point out. Independent of hover, so
+    // moving the mouse does not lose it.
+    var marked = -1;
 
     /**
      * How far from the centre the outermost point may fall.
@@ -386,6 +389,34 @@
         }
       }
 
+      /* A marked node keeps its ring and label until something clears it, so
+         a search result stays findable while the shell turns. */
+      if (marked >= 0 && marked < points.length) {
+        ctx.beginPath();
+        ctx.arc(px[marked], py[marked], 10, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(255,255,255,' + (0.35 + pnear[marked] * 0.5).toFixed(3) + ')';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        // Crosshair ticks, so it reads as a target rather than another node.
+        ctx.beginPath();
+        ctx.moveTo(px[marked] - 16, py[marked]);
+        ctx.lineTo(px[marked] - 12, py[marked]);
+        ctx.moveTo(px[marked] + 12, py[marked]);
+        ctx.lineTo(px[marked] + 16, py[marked]);
+        ctx.stroke();
+
+        if (marked !== hover) {
+          ctx.font = '11px ui-monospace, "SF Mono", Menlo, Consolas, monospace';
+          ctx.fillStyle = 'rgba(255,255,255,0.8)';
+          var mt = points[marked].label;
+          var mw = ctx.measureText(mt).width;
+          var mx = px[marked] + 20;
+          if (mx + mw > width - 4) mx = px[marked] - 20 - mw;
+          ctx.fillText(mt, mx, py[marked] + 4);
+        }
+      }
+
       /* Hover: name the note under the pointer. The label is the real one from
          the vault, which is why this is worth the hit test. */
       hover = -1;
@@ -515,6 +546,18 @@
     }
 
     return {
+      /**
+       * Point out one node until told otherwise. Pass -1 to clear.
+       *
+       * Draws immediately as well as marking, so it works under reduced
+       * motion where there is no loop to pick the change up.
+       */
+      mark: function (id) {
+        marked = typeof id === 'number' && id >= 0 && id < points.length ? id : -1;
+        draw();
+        return marked;
+      },
+
       /** Replace what is drawn. Safe to call repeatedly. */
       setData: function (galaxy) {
         var nodes = galaxy.nodes.slice(0, MAX_NODES);
@@ -543,6 +586,7 @@
         for (var o = 0; o < plotted; o += 1) order.push(o);
         order.sort(function (a, b) { return points[b].degree - points[a].degree; });
 
+        marked = -1;
         pulses = [];
         var wanted = Math.min(MAX_PULSES, Math.floor(edges.length / 2));
         for (var q = 0; q < wanted; q += 1) {

@@ -87,6 +87,9 @@
     <nav class="hx-tabs">
       <button class="hx-tab active" data-panel="note-panel">Note</button>
       <button class="hx-tab" data-panel="gen-panel">Generate</button>
+      <button type="button" class="hx-cmd-open" id="cmd-open">
+        <span class="hx-cmd-open__key">Ctrl K</span> Console
+      </button>
     </nav>
     <div class="hx-activity" id="activity" hidden aria-hidden="true"></div>
 
@@ -131,7 +134,35 @@
 
 </main>
 
+<div class="hx-cmd" id="cmd" hidden>
+  <div class="hx-cmd__scrim" id="cmd-scrim"></div>
+  <div class="hx-cmd__panel" role="dialog" aria-modal="true" aria-label="Command console">
+    <div class="hx-cmd__head">
+      <span class="hx-cmd__prompt" aria-hidden="true">&gt;</span>
+      <input
+        class="hx-cmd__input"
+        id="cmd-input"
+        type="text"
+        autocomplete="off"
+        autocapitalize="off"
+        spellcheck="false"
+        aria-label="Command"
+        placeholder="Type a command, or part of a note name"
+      />
+      <span class="hx-tech" aria-hidden="true">Esc</span>
+    </div>
+    <ul class="hx-cmd__list" id="cmd-list" role="listbox" aria-label="Results"></ul>
+    <div class="hx-cmd__out" id="cmd-out" hidden></div>
+    <div class="hx-cmd__foot">
+      <span class="hx-tech">↑ ↓ Move</span>
+      <span class="hx-tech">↵ Run</span>
+      <span class="hx-tech">Net = reaches the network</span>
+    </div>
+  </div>
+</div>
+
 <script src="/galaxy.js"></script>
 <script src="/app.js"></script>
+<script src="/console.js"></script>
 </body>
 </html>

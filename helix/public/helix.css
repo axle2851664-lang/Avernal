@@ -875,3 +875,224 @@ a:hover { color: var(--hx-text); border-color: var(--hx-line-active); }
      tier nobody is looking for. The counts and the subsystem states stay. */
   .hx-tech-strip { display: none; }
 }
+
+/* ================================================================ console ==
+ *
+ * The command console. Same language as the rest: black, hairlines, white
+ * type, one glow. It sits above everything, so it is the only surface here
+ * with a scrim behind it.
+ */
+
+.hx-cmd {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  justify-content: center;
+  /* High rather than centred: the list grows downward, and a centred panel
+     would jump as results appear. */
+  align-items: flex-start;
+  padding: 12vh var(--hx-gap) var(--hx-gap);
+}
+
+.hx-cmd[hidden] { display: none; }
+
+.hx-cmd__scrim {
+  position: absolute;
+  inset: 0;
+  background: rgb(0 0 0 / 72%);
+  animation: hx-fade var(--hx-fast) var(--hx-ease) both;
+}
+
+.hx-cmd__panel {
+  position: relative;
+  width: min(620px, 100%);
+  background: var(--hx-surface-raised);
+  border: 1px solid var(--hx-line-strong);
+  border-radius: var(--hx-radius);
+  box-shadow: 0 0 60px rgb(0 0 0 / 80%), 0 0 0 1px rgb(255 255 255 / 4%),
+    0 0 40px rgb(255 255 255 / 5%);
+  animation: hx-cmd-in 160ms var(--hx-ease) both;
+}
+
+@keyframes hx-cmd-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ------------------------------------------------------------------ input */
+
+.hx-cmd__head {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.9rem 1rem;
+  border-bottom: 1px solid var(--hx-line);
+}
+
+.hx-cmd__prompt {
+  color: var(--hx-text-faint);
+  font-family: var(--hx-font-mono);
+  font-size: 0.85rem;
+}
+
+.hx-cmd__input {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: 0;
+  color: var(--hx-text);
+  font: inherit;
+  font-size: 0.95rem;
+}
+
+.hx-cmd__input:focus { outline: none; }
+.hx-cmd__input::placeholder { color: var(--hx-text-faint); }
+
+/* ------------------------------------------------------------------ rows */
+
+.hx-cmd__list {
+  margin: 0;
+  padding: 0.35rem 0;
+  list-style: none;
+  max-height: 46vh;
+  overflow-y: auto;
+}
+
+.hx-cmd__row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+}
+
+/* Selection is a left marker and a lift in the background, not a fill: a
+   solid bar would be the brightest thing on a screen built out of hairlines. */
+.hx-cmd__row.is-active {
+  background: rgb(255 255 255 / 5%);
+  box-shadow: inset 2px 0 0 var(--hx-text);
+}
+
+.hx-cmd__row--empty {
+  color: var(--hx-text-faint);
+  cursor: default;
+  font-family: var(--hx-font-mono);
+  font-size: 0.74rem;
+  letter-spacing: 0.08em;
+}
+
+.hx-cmd__label {
+  color: var(--hx-text);
+  font-family: var(--hx-font-mono);
+  font-size: 0.78rem;
+  letter-spacing: 0.1em;
+  white-space: nowrap;
+}
+
+.hx-cmd__hint {
+  flex: 1;
+  min-width: 0;
+  color: var(--hx-text-faint);
+  font-size: 0.76rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The kind of thing a row is. NET is the one that matters: it says the row
+   will go out to the network rather than answer from what is already here. */
+.hx-cmd__tag {
+  flex: none;
+  padding: 0.1rem 0.35rem;
+  border: 1px solid var(--hx-line);
+  border-radius: var(--hx-radius);
+  color: var(--hx-text-faint);
+  font-family: var(--hx-font-mono);
+  font-size: 0.56rem;
+  letter-spacing: 0.14em;
+}
+
+.hx-cmd__row.is-active .hx-cmd__tag { border-color: var(--hx-line-active); color: var(--hx-text-dim); }
+
+/* ---------------------------------------------------------------- output */
+
+.hx-cmd__out {
+  padding: 0.85rem 1rem;
+  border-top: 1px solid var(--hx-line);
+  max-height: 30vh;
+  overflow-y: auto;
+}
+
+.hx-cmd__out[hidden] { display: none; }
+
+.hx-cmd__line {
+  color: var(--hx-text-dim);
+  font-family: var(--hx-font-mono);
+  font-size: 0.72rem;
+  line-height: 1.8;
+  letter-spacing: 0.04em;
+  white-space: pre-wrap;
+}
+
+.hx-cmd__line--bad { color: var(--hx-alert); }
+
+.hx-cmd__link {
+  display: inline-block;
+  margin-top: 0.4rem;
+  font-family: var(--hx-font-mono);
+  font-size: 0.68rem;
+  word-break: break-all;
+}
+
+.hx-cmd__foot {
+  display: flex;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+  padding: 0.6rem 1rem;
+  border-top: 1px solid var(--hx-line);
+}
+
+/* ------------------------------------------------------------- open button */
+
+/* The only affordance advertising the console. It lives on the tab strip
+   rather than in a HUD corner: the corners are readouts, this is a control,
+   and the lower corners are dropped at phone widths where a visible way in
+   matters most — there may be no keyboard to press Ctrl+K on. */
+.hx-cmd-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-left: auto;
+  padding: 0.7rem 0 0.7rem 1rem;
+  background: none;
+  border: 0;
+  color: var(--hx-text-faint);
+  font-family: var(--hx-font-mono);
+  font-size: var(--hx-label-size);
+  letter-spacing: var(--hx-label-tracking);
+  text-transform: uppercase;
+  cursor: pointer;
+  pointer-events: auto; /* The HUD around it does not take pointer events. */
+  transition: color var(--hx-fast) var(--hx-ease);
+}
+
+.hx-cmd-open:hover { color: var(--hx-text); }
+
+.hx-cmd-open:focus-visible {
+  outline: none;
+  color: var(--hx-text);
+  box-shadow: 0 0 0 1px var(--hx-line-active);
+}
+
+.hx-cmd-open__key {
+  padding: 0.12rem 0.3rem;
+  border: 1px solid var(--hx-line);
+  border-radius: var(--hx-radius);
+}
+
+@media (max-width: 560px) {
+  .hx-cmd { padding: 6vh 0.75rem 0.75rem; }
+  .hx-cmd__hint { display: none; }
+  .hx-cmd__foot { display: none; }
+}

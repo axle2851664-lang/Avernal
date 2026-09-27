@@ -75,6 +75,13 @@
     return alone;
   }
 
+  // The last successful reads, kept so the command console can answer from
+  // what the page already has instead of going back to the server.
+  var lastGalaxy = null;
+  var lastHealth = null;
+  var lastSyncAt = null;
+  var lastLatency = null;
+
   function loadGalaxy() {
     var started = window.performance.now();
     busy(1);
@@ -85,8 +92,11 @@
       })
       .then(function (galaxy) {
         // Measured round trip for this request, not an average or an estimate.
-        el('tech-latency').textContent = Math.round(window.performance.now() - started) + ' ms';
-        el('tech-sync').textContent = 'Sync ' + clockOf(new Date());
+        lastLatency = Math.round(window.performance.now() - started);
+        lastSyncAt = new Date();
+        lastGalaxy = galaxy;
+        el('tech-latency').textContent = lastLatency + ' ms';
+        el('tech-sync').textContent = 'Sync ' + clockOf(lastSyncAt);
 
         setReadout('hud-nodes', galaxy.nodes.length);
         setReadout('hud-links', galaxy.links.length);
@@ -115,6 +125,7 @@
         // sync time is left alone because it is still the last time this page
         // did read the vault.
         el('core-sub').textContent = 'Vault unreadable';
+        lastLatency = null;
         el('tech-latency').textContent = '— ms';
         setLink('Offline', true);
         console.warn('Could not read the galaxy:', err.message);
@@ -128,6 +139,7 @@
     return fetch('/health')
       .then(function (res) { return res.json(); })
       .then(function (health) {
+        lastHealth = health;
         var services = health.services || {};
         var states = {
           'sig-gmail': services.gmail === 'authenticated',
@@ -171,14 +183,23 @@
 
   /* ----------------------------------------------------------------- tabs */
 
+  function showPanel(panelId) {
+    var found = false;
+    document.querySelectorAll('.hx-tab').forEach(function (t) {
+      var mine = t.dataset.panel === panelId;
+      if (mine) found = true;
+      t.classList.toggle('active', mine);
+    });
+    if (!found) return false;
+    ['note-panel', 'gen-panel'].forEach(function (id) {
+      el(id).hidden = id !== panelId;
+    });
+    return true;
+  }
+
   document.querySelectorAll('.hx-tab').forEach(function (tab) {
     tab.addEventListener('click', function () {
-      document.querySelectorAll('.hx-tab').forEach(function (t) {
-        t.classList.toggle('active', t === tab);
-      });
-      ['note-panel', 'gen-panel'].forEach(function (id) {
-        el(id).hidden = id !== tab.dataset.panel;
-      });
+      showPanel(tab.dataset.panel);
     });
   });
 
@@ -284,4 +305,52 @@
       busy(-1);
     }
   });
+
+  /* --------------------------------------------------------- console hooks */
+
+  /*
+   * What the command console is allowed to reach.
+   *
+   * Deliberately a handful of getters and the actions this file already
+   * performs, rather than the internals: the console runs the same code paths
+   * the buttons do, so there is one implementation of each action and no way
+   * for the console to do something the UI cannot.
+   */
+  window.Helix = {
+    galaxy: function () { return lastGalaxy; },
+    health: function () { return lastHealth; },
+    metrics: function () {
+      return {
+        syncedAt: lastSyncAt === null ? null : clockOf(lastSyncAt),
+        latencyMs: lastLatency,
+        uptime: el('tech-uptime').textContent.replace(/^Up /, ''),
+        inFlight: inFlight,
+      };
+    },
+    refresh: loadGalaxy,
+    showPanel: showPanel,
+    /** Point the visualisation at one note. Returns false if it could not. */
+    markNode: function (id) {
+      if (view === null || typeof view.mark !== 'function') return false;
+      return view.mark(id) === id;
+    },
+    focusNoteField: function () {
+      showPanel('note-panel');
+      el('note').focus();
+    },
+    focusPromptField: function () {
+      showPanel('gen-panel');
+      el('prompt').focus();
+    },
+    /** Wraps a request in the same activity indicator the buttons use. */
+    request: function (path) {
+      busy(1);
+      return fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' } })
+        .then(function (res) {
+          return res.json().then(function (body) { return { ok: res.ok, body: body }; });
+        })
+        .then(function (result) { busy(-1); return result; })
+        .catch(function (err) { busy(-1); throw err; });
+    },
+  };
 })();

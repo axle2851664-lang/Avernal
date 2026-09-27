@@ -46,6 +46,12 @@ describe('public/index.html', () => {
       'tech-latency',
       'tech-uptime',
       'activity',
+      // Command console.
+      'cmd',
+      'cmd-input',
+      'cmd-list',
+      'cmd-out',
+      'cmd-open',
     ];
     const missing = ids.filter((id) => !page.includes(`id="${id}"`));
     expect(missing).toEqual([]);
@@ -66,6 +72,7 @@ describe('public/index.html', () => {
   it('loads its behaviour from files rather than an inline block', () => {
     expect(page).toContain('src="/galaxy.js"');
     expect(page).toContain('src="/app.js"');
+    expect(page).toContain('src="/console.js"');
     expect(page).not.toContain('<script>');
   });
 
@@ -122,6 +129,46 @@ describe('public/galaxy.js', () => {
     // draw() returns before touching any buffer, so an empty galaxy paints
     // nothing rather than a decorative starfield.
     expect(galaxy).toContain('if (points.length === 0) return;');
+  });
+});
+
+describe('public/console.js', () => {
+  const cmd = readFileSync(join(PUBLIC, 'console.js'), 'utf8');
+  const app = readFileSync(join(PUBLIC, 'app.js'), 'utf8');
+
+  it('only reaches endpoints the server actually serves', () => {
+    // Every path the console can request, checked against the routes in
+    // src/server/index.ts. A command for an endpoint that does not exist is
+    // the exact kind of fake functionality this must not grow.
+    const server = readFileSync(
+      join(import.meta.dirname, '..', 'index.ts'),
+      'utf8'
+    );
+    const paths = [...cmd.matchAll(/'(\/[a-z0-9/_-]+)'/g)].map((m) => m[1]);
+    const unknown = paths.filter((path) => !server.includes(`'${path}'`));
+    expect(unknown).toEqual([]);
+  });
+
+  it('drives the page through the published hooks, not its internals', () => {
+    for (const hook of ['refresh', 'markNode', 'metrics', 'galaxy', 'request']) {
+      expect(app).toContain(hook + ':');
+    }
+  });
+
+  it('offers nothing for a screen that does not exist', () => {
+    // There is no settings surface, so there is no SETTINGS command.
+    expect(cmd).not.toContain("name: 'SETTINGS'");
+  });
+
+  it('leaves typing in the page alone', () => {
+    // "/" and Ctrl+K must not be stolen from a field someone is writing in.
+    expect(cmd).toContain('typingInto');
+    expect(cmd).toContain("tag === 'TEXTAREA'");
+  });
+
+  it('lets go of focus before hiding itself', () => {
+    // A focused field inside a hidden dialog swallows every later keystroke.
+    expect(cmd).toContain('input.blur();');
   });
 });
 
