@@ -40,6 +40,12 @@ describe('public/index.html', () => {
       'sig-gmail',
       'sig-youtube',
       'sig-generators',
+      // Metadata tier, and the in-flight indicator.
+      'hud-orphans',
+      'tech-sync',
+      'tech-latency',
+      'tech-uptime',
+      'activity',
     ];
     const missing = ids.filter((id) => !page.includes(`id="${id}"`));
     expect(missing).toEqual([]);
@@ -87,6 +93,14 @@ describe('public/helix.css', () => {
       expect(css).toContain(rule);
     }
   });
+
+  it('keeps the three HUD tiers visually distinct', () => {
+    // Primary, secondary and metadata have to differ in weight or the
+    // hierarchy is only in the markup.
+    expect(css).toContain('.hx-readout__value--sm');
+    expect(css).toContain('.hx-tech {');
+    expect(css).toContain('.hx-readout__value--changed');
+  });
 });
 
 describe('public/galaxy.js', () => {
@@ -120,6 +134,18 @@ describe('public/app.js', () => {
   it('still posts notes and generations to the endpoints that existed before', () => {
     expect(app).toContain("fetch('/notes'");
     expect(app).toContain("fetch('/generate/' + mode");
+  });
+
+  it('flashes a readout only when its value actually changed', () => {
+    // Re-running the animation on every poll would make a still vault look
+    // busy, which is the opposite of what the flash is for.
+    expect(app).toContain('if (node.textContent === text) return;');
+  });
+
+  it('counts requests in flight rather than toggling a flag', () => {
+    // With a flag, the first of two overlapping requests to finish clears the
+    // indicator while the second is still running.
+    expect(app).toContain('inFlight = Math.max(0, inFlight + delta)');
   });
 
   it('does not report a drawing fault as an unreadable vault', () => {

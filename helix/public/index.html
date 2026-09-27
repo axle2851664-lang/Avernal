@@ -12,6 +12,8 @@
 
   <div class="hx-stage">
     <div class="hx-reticle" aria-hidden="true"></div>
+    <div class="hx-sweep" aria-hidden="true"></div>
+    <div class="hx-frame" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
 
     <div class="hx-core">
       <h1>Helix</h1>
@@ -35,6 +37,10 @@
         <span class="hx-readout">
           <span class="hx-readout__key">Clusters</span>
           <span class="hx-readout__value" id="hud-groups">—</span>
+        </span>
+        <span class="hx-readout">
+          <span class="hx-readout__key">Unlinked</span>
+          <span class="hx-readout__value hx-readout__value--sm" id="hud-orphans">—</span>
         </span>
       </div>
 
@@ -67,6 +73,14 @@
         </span>
       </div>
     </div>
+
+    <div class="hx-tech-strip">
+      <span class="hx-tech" id="tech-sync">Sync —</span>
+      <span class="hx-tech-rule" aria-hidden="true"></span>
+      <span class="hx-tech" id="tech-latency">— ms</span>
+      <span class="hx-tech-rule" aria-hidden="true"></span>
+      <span class="hx-tech" id="tech-uptime">Up 00:00:00</span>
+    </div>
   </div>
 
   <div class="hx-console">
@@ -74,6 +88,7 @@
       <button class="hx-tab active" data-panel="note-panel">Note</button>
       <button class="hx-tab" data-panel="gen-panel">Generate</button>
     </nav>
+    <div class="hx-activity" id="activity" hidden aria-hidden="true"></div>
 
     <section class="hx-panel" id="note-panel">
       <label class="hx-label" for="note">Capture to vault</label>

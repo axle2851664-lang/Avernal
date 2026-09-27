@@ -705,4 +705,173 @@ a:hover { color: var(--hx-text); border-color: var(--hx-line-active); }
      narrow viewport. */
   .hx-reticle { height: min(32vh, 48vw); }
   .hx-core h1 { letter-spacing: 0.32em; text-indent: 0.32em; }
+
+  /* The top strip already carries the note and link counts at this width, so
+     the line under the wordmark is a second copy of them — over the densest
+     part of the shell, where it is the hardest thing on the screen to read.
+     One of the two has to go, and it is this one. */
+  .hx-core__sub { display: none; }
+}
+
+/* ==================================================================== HUD ==
+ *
+ * The information layer. Three tiers, and the type carries the tier:
+ *
+ *   primary    .hx-readout__value        counts that answer "what is in here"
+ *   secondary  .hx-readout__value--sm    state that answers "is it working"
+ *   metadata   .hx-tech                  provenance — when, how long, how old
+ *
+ * Anything that cannot be measured does not get a readout. The only things
+ * here with no data behind them are the corner brackets and the sweep, which
+ * are frame furniture and say nothing.
+ */
+
+/* A readout brightens for a moment when its number actually changes, so a
+   note landing in the vault is visible without anything having to announce
+   it. Applied by script only on a real change, never on a repaint. */
+@keyframes hx-readout-change {
+  0% { color: #fff; text-shadow: 0 0 14px rgb(255 255 255 / 70%); }
+  100% { color: var(--hx-text); text-shadow: none; }
+}
+
+.hx-readout__value--changed {
+  animation: hx-readout-change 900ms var(--hx-ease);
+}
+
+/* ------------------------------------------------------- corner brackets */
+
+/* Frame furniture: four hairline corners on the stage. Decorative, and
+   deliberately the only thing here that is. */
+.hx-frame {
+  position: absolute;
+  inset: 0.75rem;
+  pointer-events: none;
+}
+
+.hx-frame span {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--hx-line-strong);
+}
+
+.hx-frame span:nth-child(1) { top: 0; left: 0; border-right: 0; border-bottom: 0; }
+.hx-frame span:nth-child(2) { top: 0; right: 0; border-left: 0; border-bottom: 0; }
+.hx-frame span:nth-child(3) { bottom: 0; left: 0; border-right: 0; border-top: 0; }
+.hx-frame span:nth-child(4) { bottom: 0; right: 0; border-left: 0; border-top: 0; }
+
+/* ------------------------------------------------------------- the sweep */
+
+/* One faint line crossing the stage every half minute. It reports nothing;
+   it is there so the frame does not sit perfectly still. A transform-only
+   animation, so it runs on the compositor and never touches layout. */
+.hx-sweep {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.hx-sweep::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    transparent,
+    rgb(255 255 255 / 22%) 30%,
+    rgb(255 255 255 / 22%) 70%,
+    transparent
+  );
+  will-change: transform, opacity;
+  animation: hx-sweep-down 30s var(--hx-ease) infinite;
+}
+
+@keyframes hx-sweep-down {
+  0% { transform: translateY(0); opacity: 0; }
+  /* Visible for roughly four of the thirty seconds. */
+  4% { opacity: 0.85; }
+  15% { opacity: 0; }
+  16%, 100% { transform: translateY(100%); opacity: 0; }
+}
+
+/* ---------------------------------------------------------- metadata tier */
+
+/* Provenance, along the foot of the stage: when the vault was last read, how
+   long that read took, how long this page has been open. The dimmest type on
+   the screen, because none of it is worth reading unless you went looking. */
+.hx-tech-strip {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 0.75rem;
+  pointer-events: none;
+}
+
+.hx-tech {
+  color: var(--hx-text-faint);
+  font-family: var(--hx-font-mono);
+  font-size: 0.62rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  opacity: 0.72;
+}
+
+/* The divider between metadata fields: a rule, not a bullet. */
+.hx-tech-rule {
+  width: 18px;
+  height: 1px;
+  background: var(--hx-line);
+}
+
+/* --------------------------------------------------------- activity line */
+
+/* Sits on the console's own rule and runs while a request is in flight. It is
+   an activity indicator, not a progress bar: the server answers these in one
+   shot and reports no fraction, so showing a filling bar would be inventing
+   a number. */
+.hx-activity {
+  position: relative;
+  height: 1px;
+  margin-top: -1px; /* Rides the tab strip's border rather than adding a line. */
+  overflow: hidden;
+}
+
+.hx-activity[hidden] { display: none; }
+
+.hx-activity::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 35%;
+  height: 1px;
+  background: linear-gradient(to right, transparent, var(--hx-text), transparent);
+  animation: hx-activity-run 1.4s var(--hx-ease) infinite;
+}
+
+@keyframes hx-activity-run {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(386%); }
+}
+
+/* -------------------------------------------------------------- narrower */
+
+@media (max-width: 820px) {
+  .hx-frame { inset: 0.5rem; }
+  .hx-frame span { width: 10px; height: 10px; }
+}
+
+@media (max-width: 560px) {
+  /* Metadata is the first thing to go when there is no room for it: it is the
+     tier nobody is looking for. The counts and the subsystem states stay. */
+  .hx-tech-strip { display: none; }
 }

@@ -172,6 +172,7 @@
     var last = 0;
     var frame = 0;
     var shell = 0;
+    var unit = 1;
     var visible = true;
     var pointerX = -1;
     var pointerY = -1;
@@ -207,6 +208,11 @@
       canvas.height = Math.max(1, Math.round(height * dpr));
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       shell = shellRadius();
+      // Dot and glow sizes are quoted against a desktop shell. On a phone the
+      // shell is a third of that, and fixed pixel sizes there make a
+      // well-linked vault a solid white blob: the points overlap and the glow
+      // sprites stack. Everything drawn per point scales with the shell.
+      unit = Math.max(0.42, Math.min(1.15, shell / 240));
     }
 
     /* ------------------------------------------------------- projection */
@@ -307,7 +313,7 @@
           var id = order[o];
           var near = pnear[id];
           if (near < 0.55) continue;
-          var size = (6 + points[id].degree * 2.5) * near;
+          var size = (6 + points[id].degree * 2.5) * near * unit;
           ctx.globalAlpha = (near - 0.55) / 0.45;
           ctx.drawImage(glow, px[id] - size, py[id] - size, size * 2, size * 2);
           lit2 += 1;
@@ -323,7 +329,7 @@
         // Inside the scanning plane a point brightens briefly. The plane is a
         // readout of position on the shell, not of anything in the data.
         var swept = reduced ? 0 : Math.max(0, 1 - Math.abs(pt.y - scanY) / SCAN_BAND);
-        var radius = 0.7 + near2 * 1.3 + Math.min(pt.degree, 6) * 0.22 + swept * 0.9;
+        var radius = (0.7 + near2 * 1.3 + Math.min(pt.degree, 6) * 0.22 + swept * 0.9) * unit;
         var alpha = Math.min(1, 0.18 + near2 * 0.62 + Math.min(pt.degree, 6) * 0.03 + swept * 0.45);
         ctx.fillStyle = 'rgba(255,255,255,' + alpha.toFixed(3) + ')';
         ctx.beginPath();
