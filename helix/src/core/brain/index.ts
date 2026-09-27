@@ -41,6 +41,9 @@ export type { Admission } from './rules.js';
 
 export { MemoryRefused, MemoryStore } from './store.js';
 
+export { ConversationLog, MAX_TURNS, REPLAY_DEPTH } from './conversation.js';
+export type { Recorded, Turn } from './conversation.js';
+
 export { buildContext, resolveProject } from './context.js';
 export type { ContextOptions } from './context.js';
 

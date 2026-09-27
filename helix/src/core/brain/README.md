@@ -11,6 +11,7 @@ nothing here speaks — the server wires it to routes, the UI renders the state.
 | `context.ts` | what already known bears on what was just said |
 | `planner.ts` | how a request breaks into steps — it runs none of them |
 | `capabilities.ts` | everything Helix can do, and which needs asking first |
+| `conversation.ts` | what was said, kept across restarts |
 | `state.ts` | one structured answer to "what is Helix holding right now" |
 
 ## The two rules that shape everything else
@@ -24,6 +25,26 @@ check is in `rules.ts` and applies on every write, including edits.
 both the text and the reason. There is no secure store here, so there is no
 storing of secrets here — and the refusal never repeats the value back, since
 quoting a password into an error only moves it somewhere else.
+
+## The conversation is not a memory
+
+A memory is something Helix was asked to keep and can justify keeping, and it
+has rules about who may write one. A turn is a record of what passed between
+you — nobody asked for it, and it needs no justification.
+
+So `conversation.ts` is its own file and its own table. It **outlives the
+process**, because a conversation that forgets itself every time the server
+restarts is not a conversation, and the last few turns are replayed to the
+model on every question so a follow-up has something to refer to.
+
+Two rules carry over. Nothing that looks like a credential is written down —
+such a turn is refused rather than redacted, since redacting means deciding
+which part was the secret and being wrong writes it down anyway. And the log
+is bounded at 400 turns, oldest dropped first: a transcript that grows without
+limit is a file nobody can open.
+
+Short-term memory still does **not** survive a restart. That is the
+distinction working, not a gap: the session ends, so its observations go.
 
 ## Memory categories
 
@@ -50,6 +71,9 @@ Every memory carries a `reason` and a `source`. That pair is what makes
 | `POST /brain/memory/clear` | clear a category, or everything with `all: true` |
 | `POST /brain/context` | what is relevant to an utterance, and why |
 | `POST /brain/plan` | steps for a request — plans only, runs nothing |
+| `GET /brain/conversation?q=` | view and search what was said |
+| `DELETE /brain/conversation/:id` | forget one exchange |
+| `POST /brain/conversation/clear` | forget all of it, with `all: true` |
 
 A refusal is a `422` with `refused: true` and a sentence to show the user.
 
@@ -58,7 +82,7 @@ not be what happens when a parameter goes missing.
 
 ## Where it is stored
 
-`helix-memory.json` under the data root, beside the vault, so it travels with
+`helix-memory.json` and `helix-conversation.json` under the data root, beside the vault, so it travels with
 everything else Helix accumulates and can be read, backed up or deleted
 without Helix cooperating. Writes go to a temporary file and are renamed, so a
 crash mid-write leaves the previous file intact.

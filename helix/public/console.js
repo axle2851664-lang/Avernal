@@ -205,6 +205,37 @@
       },
     },
     {
+      name: 'HISTORY',
+      arg: '<text>',
+      hint: 'What you and Helix have said, across restarts',
+      network: true,
+      run: function (arg) {
+        report(['Reading\u2026']);
+        fetch('/brain/conversation?q=' + encodeURIComponent(arg))
+          .then(function (res) { return res.json(); })
+          .then(function (body) {
+            if (body.turns.length === 0) {
+              report([arg === '' ? 'Nothing said yet.' : 'Nothing matching "' + arg + '".']);
+              return;
+            }
+            var lines = [
+              body.total + ' exchange' + (body.total === 1 ? '' : 's') +
+                ' across ' + body.sessions + ' session' + (body.sessions === 1 ? '' : 's') + '.',
+              '',
+            ];
+            // Newest first, and only a handful: this is a glance, not an
+            // archive. The whole thing is at GET /brain/conversation.
+            body.turns.slice(0, 6).forEach(function (turn) {
+              lines.push(turn.at.slice(11, 16) + '  ' + turn.question);
+              lines.push('       ' + turn.answer);
+            });
+            report(lines);
+          })
+          .catch(function (err) { fail('Could not read it: ' + err.message); });
+        return 'stay';
+      },
+    },
+    {
       name: 'ACTIVITY',
       hint: 'Report what this page has measured',
       run: function () {
@@ -366,7 +397,7 @@
 
     // SPEAK and ASK carry their text as an argument, so the row has to be
     // built with that argument rather than matched as a bare command name.
-    var withArgument = [['SPEAK', 5], ['ASK', 3]];
+    var withArgument = [['SPEAK', 5], ['ASK', 3], ['HISTORY', 7]];
     for (var w = 0; w < withArgument.length; w += 1) {
       var name = withArgument[w][0];
       if (upper.indexOf(name) !== 0) continue;

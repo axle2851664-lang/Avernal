@@ -26,10 +26,12 @@ import { draftCapture } from '../core/galaxy/capture.js';
 import { buildGalaxy } from '../core/galaxy/graph.js';
 import {
   buildContext,
+  ConversationLog,
   describeState,
   MemoryRefused,
   MemoryStore,
   planRequest,
+  REPLAY_DEPTH,
   MEMORY_CATEGORIES,
   type MemoryCategory,
 } from '../core/brain/index.js';
@@ -691,7 +693,7 @@ app.get('/brain/state', (_req: Request, res: Response) => {
       startedAt: SESSION_STARTED_AT,
       currentProjectId,
       plan: null,
-    })
+    }, conversation)
   );
 });
 
@@ -791,6 +793,36 @@ app.post('/brain/memory/clear', (req: Request, res: Response) => {
   res.json({ success: true, removed: memory.clear(body.category), scope: body.category });
 });
 
+/* ----------------------------------------------------- the conversation */
+
+app.get('/brain/conversation', (req: Request, res: Response) => {
+  const query = typeof req.query.q === 'string' ? req.query.q : '';
+  res.json({
+    turns: conversation.search(query),
+    total: conversation.size,
+    sessions: conversation.sessions,
+  });
+});
+
+app.delete('/brain/conversation/:id', (req: Request, res: Response) => {
+  if (!conversation.forget(String(req.params.id ?? ''))) {
+    return res.status(404).json({ error: 'No turn with that id' });
+  }
+  res.json({ success: true });
+});
+
+/*
+ * Forget the whole conversation. `all: true` has to be said, for the same
+ * reason clearing memory does: losing every exchange should not be what
+ * happens when a parameter goes missing.
+ */
+app.post('/brain/conversation/clear', (req: Request, res: Response) => {
+  if ((req.body as Record<string, unknown>).all !== true) {
+    return res.status(400).json({ error: 'Pass all: true to forget the whole conversation' });
+  }
+  res.json({ success: true, removed: conversation.clear() });
+});
+
 app.post('/brain/context', (req: Request, res: Response) => {
   const body = req.body as Record<string, unknown>;
   if (typeof body.utterance !== 'string') {
@@ -834,9 +866,15 @@ app.post('/brain/plan', (req: Request, res: Response) => {
  */
 const mind = HelixMind.fromEnvironment();
 
-/** The last few exchanges, so a follow-up has something to refer to. */
-const HISTORY_DEPTH = 6;
-const history: Exchange[] = [];
+/*
+ * What has been said, kept beside the vault and the memory.
+ *
+ * A transcript rather than a memory: a memory is something Helix was asked to
+ * keep and can justify keeping, where a turn is just a record of what passed
+ * between you. It outlives the process because a conversation that forgets
+ * itself whenever the server restarts is not a conversation.
+ */
+const conversation = new ConversationLog(DATA_ROOT);
 
 app.get('/ask/status', (_req: Request, res: Response) => {
   res.json(mind.status());
@@ -869,28 +907,25 @@ app.post('/ask', async (req: Request, res: Response) => {
     if (context.projectId !== null) currentProjectId = context.projectId;
     const memoryBlock = context.items.map((item) => '- ' + item.memory.text).join('\n');
 
+    // Earlier turns, from this run of the server and every one before it.
+    const history: Exchange[] = conversation
+      .recent(REPLAY_DEPTH)
+      .map((turn) => ({ question: turn.question, answer: turn.answer }));
+
     const answer = await mind.answer(question, notesBlock, SYSTEM_PROMPT, {
       memory: memoryBlock,
-      history: history.slice(-HISTORY_DEPTH),
+      history,
     });
 
-    history.push({ question, answer: answer.text });
-
-    // The exchange goes into short-term memory, which is scoped to this
-    // process and dropped when it ends. Nothing durable is written: the rules
-    // forbid an observation outliving the session, and a question asked out
-    // loud is an observation, not an instruction to remember it.
-    try {
-      memory.remember({
-        category: 'short-term',
-        text: 'Asked: ' + question,
-        reason: 'Said in this session',
-        source: { origin: 'observation', detail: 'ask' },
-        sessionId: SESSION_ID,
-      });
-    } catch {
-      // A refused memory must not cost him his answer.
-    }
+    // Written down, unless it carried something that looked like a
+    // credential — in which case it is refused rather than redacted, and the
+    // reply is still given. Saying it aloud is not the same as filing it.
+    const recorded = conversation.record({
+      question,
+      answer: answer.text,
+      sessionId: SESSION_ID,
+      grounded: answer.grounded,
+    });
 
     res.json({
       answer: answer.text,
@@ -901,6 +936,11 @@ app.post('/ask', async (req: Request, res: Response) => {
         label: galaxy.nodes[source.id]?.label ?? null,
       })),
       usedMemory: context.items.length,
+      // How much of the conversation he had to hand, and whether this one
+      // went into it.
+      usedHistory: history.length,
+      recorded: recorded.kept,
+      ...(recorded.kept ? {} : { notRecorded: recorded.reason }),
       canSpeak: voice.configured,
     });
   } catch (error) {

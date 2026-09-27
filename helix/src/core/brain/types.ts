@@ -174,5 +174,7 @@ export interface HelixState {
   readonly projects: readonly Project[];
   readonly capabilities: readonly Capability[];
   readonly pendingActions: readonly PlanStep[];
+  /** How much has been said, across every run of the server. */
+  readonly conversation: { readonly turns: number; readonly sessions: number };
   readonly counts: Readonly<Record<MemoryCategory, number>>;
 }

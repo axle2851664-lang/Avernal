@@ -8,6 +8,7 @@
 import { CAPABILITIES } from './capabilities.js';
 import { pendingConfirmations } from './planner.js';
 import type { MemoryStore } from './store.js';
+import type { ConversationLog } from './conversation.js';
 import type { HelixState, Plan, PlanStep, Project } from './types.js';
 
 export interface SessionInfo {
@@ -20,7 +21,11 @@ export interface SessionInfo {
 
 const RECENT_SHORT_TERM = 12;
 
-export function describeState(store: MemoryStore, session: SessionInfo): HelixState {
+export function describeState(
+  store: MemoryStore,
+  session: SessionInfo,
+  conversation?: ConversationLog
+): HelixState {
   const projects = store.projects();
   const current: Project | null =
     session.currentProjectId === null
@@ -44,6 +49,11 @@ export function describeState(store: MemoryStore, session: SessionInfo): HelixSt
     projects,
     capabilities: CAPABILITIES,
     pendingActions: pending,
+    // Optional so the brain's own tests can describe a state without one.
+    conversation:
+      conversation === undefined
+        ? { turns: 0, sessions: 0 }
+        : { turns: conversation.size, sessions: conversation.sessions },
     counts: store.counts(),
   };
 }
