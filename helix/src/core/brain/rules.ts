@@ -22,11 +22,17 @@ export type Admission =
   | { readonly admit: false; readonly refusal: string };
 
 /**
- * Categories that outlive the session. Nothing lands here without the user
- * having asked: an assistant that decides on its own what is worth keeping
- * forever is one nobody can predict.
+ * Categories that outlive the session.
+ *
+ * Nothing lands here off Helix's own judgement: an assistant that decides on
+ * its own what is worth keeping forever is one nobody can predict. What the
+ * user said — asked for outright, or stated as a preference in a phrase that
+ * matched — may stay. What Helix merely noticed may not.
  */
 const DURABLE = new Set(['long-term', 'preference', 'project', 'task']);
+
+/** Origins that speak for the user rather than for Helix. */
+const FROM_THE_USER = new Set(['user-command', 'stated', 'vault', 'import']);
 
 function blank(value: string): boolean {
   return value.trim() === '';
@@ -73,13 +79,13 @@ export function assess(draft: MemoryDraft): Admission {
     return { admit: false, refusal: refusalFor(secrets) };
   }
 
-  if (DURABLE.has(draft.category) && draft.source.origin === 'observation') {
+  if (DURABLE.has(draft.category) && !FROM_THE_USER.has(draft.source.origin)) {
     return {
       admit: false,
       refusal:
         'Refusing to keep an observation in ' +
         draft.category +
-        ' memory. Anything that outlives this session has to be asked for; ' +
+        ' memory. Anything that outlives this session has to come from you; ' +
         'noticed things go to short-term memory.',
     };
   }

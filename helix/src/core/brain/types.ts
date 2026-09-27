@@ -30,12 +30,20 @@ export const MEMORY_CATEGORIES: readonly MemoryCategory[] = [
 /**
  * Where a memory came from.
  *
- * This is what makes "why do you know that?" answerable. `user-command` means
- * the user asked for it to be kept; `observation` means Helix noticed it
- * during a session. The distinction is load-bearing: the admission rules only
- * let observations into short-term memory.
+ * This is what makes "why do you know that?" answerable, and the distinction
+ * is load-bearing rather than descriptive — the admission rules read it.
+ *
+ *   user-command  the user asked for this to be kept, in so many words
+ *   stated        the user said it as a preference; Helix matched the phrase,
+ *                 it did not infer the preference
+ *   observation   Helix noticed it. Short-term memory only.
+ *
+ * `stated` is the narrow middle. It exists so "I prefer short answers" can be
+ * kept without opening the door to Helix deciding on its own what kind of
+ * person you are. Nothing produces it except an explicit turn of phrase, and
+ * every one is reported back when it happens.
  */
-export type MemoryOrigin = 'user-command' | 'observation' | 'vault' | 'import';
+export type MemoryOrigin = 'user-command' | 'stated' | 'observation' | 'vault' | 'import';
 
 export interface MemorySource {
   readonly origin: MemoryOrigin;

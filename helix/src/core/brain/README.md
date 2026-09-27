@@ -11,10 +11,29 @@ nothing here speaks — the server wires it to routes, the UI renders the state.
 | `context.ts` | what already known bears on what was just said |
 | `planner.ts` | how a request breaks into steps — it runs none of them |
 | `capabilities.ts` | everything Helix can do, and which needs asking first |
+| `listen.ts` | what a sentence asks to be kept |
 | `conversation.ts` | what was said, kept across restarts |
 | `state.ts` | one structured answer to "what is Helix holding right now" |
 
 ## The two rules that shape everything else
+
+**Helix keeps what you say, not what it concludes.**
+
+Two phrasings are caught, and nothing else:
+
+| you say | it keeps |
+| --- | --- |
+| `Remember this: …`, `don't forget …`, `keep in mind …`, `make a note that …` | long-term |
+| `I prefer …`, `I don't like …`, `always …`, `never …`, `from now on …`, `call me …`, `stop …ing` | preference |
+
+A question is never a capture — "Do I prefer tea?" states no preference — and
+every capture is reported back in the reply, so nothing is kept quietly.
+`listen.ts` matches phrases; it does not infer intent. An assistant that works
+out for itself what kind of person you are is one nobody can predict.
+
+That is what the `stated` origin is for: you said it, Helix matched the words.
+It sits between `user-command` (you asked outright) and `observation` (Helix
+noticed), and only the first two may reach durable memory.
 
 **Helix does not quietly keep what it sees.** Anything meant to outlive the
 session has to have been asked for. Observations may only accumulate in

@@ -119,7 +119,27 @@
         api()
           .ask(arg)
           .then(function (body) {
-            var lines = [body.answer];
+            var lines = [];
+
+            // What was kept, said out loud. Nothing is stored quietly, and
+            // that has to be visible here or the rule is only in the code.
+            (body.remembered || []).forEach(function (item) {
+              lines.push('Remembered (' + item.category + '): ' + item.text);
+            });
+            (body.notRemembered || []).forEach(function (why) {
+              lines.push('Not remembered: ' + why);
+            });
+            if (lines.length > 0) lines.push('');
+
+            if (body.answer === null) {
+              // Kept, but he could not answer. Both facts, neither standing
+              // in for the other.
+              lines.push(body.answerUnavailable || 'No answer available.');
+              report(lines);
+              return;
+            }
+
+            lines.push(body.answer);
             if (body.sources && body.sources.length > 0) {
               // Which notes he used, so a wrong answer is traceable.
               lines.push('');
@@ -406,12 +426,18 @@
       return [commandRow(command, rest)];
     }
 
-    // Anything phrased as a question is a question. Typing it is the shortest
-    // path to the thing most people open this for, and it does not shadow a
-    // command: no command name ends in a question mark.
-    if (query.slice(-1) === '?') {
-      var askCommand = COMMANDS.filter(function (c) { return c.name === 'ASK'; })[0];
-      return [commandRow(askCommand, query)];
+    /*
+     * Anything phrased as a question, or opening like something said to
+     * Helix rather than looked up, goes to him.
+     *
+     * This is a routing guess, not the memory policy: the console decides
+     * whether a line is something you are saying, and the server decides
+     * whether it is something to keep. Being wrong here costs an answer
+     * instead of a search — it cannot cause anything to be remembered that
+     * the server would not have remembered anyway.
+     */
+    if (query.slice(-1) === '?' || SPOKEN.test(query)) {
+      return [askRow(query)];
     }
 
     var results = [];
@@ -437,7 +463,21 @@
       results = results.concat(notes);
     }
 
-    return results.slice(0, MAX_RESULTS + COMMANDS.length);
+    return withFallback(results.slice(0, MAX_RESULTS + COMMANDS.length), query);
+  }
+
+  /*
+   * Openings that read as talking rather than searching. Deliberately a
+   * short list of first words: a longer one starts shadowing note titles.
+   */
+  var SPOKEN =
+    /^\s*(?:remember|don'?t\s+forget|do\s+not\s+forget|keep\s+in\s+mind|make\s+a\s+note|always|never|from\s+now\s+on|call\s+me|stop\s+\w+ing|i\s+(?:prefer|like|love|hate|dislike|don'?t|do\s+not))\b/i;
+
+  function askRow(text) {
+    return commandRow(
+      COMMANDS.filter(function (c) { return c.name === 'ASK'; })[0],
+      text
+    );
   }
 
   function commandRow(command, arg) {
@@ -500,6 +540,11 @@
       empty.textContent = 'Nothing matches. Try HELP.';
       list.appendChild(empty);
     }
+  }
+
+  /** Matching no command and no note is not a dead end: say it to him. */
+  function withFallback(results, query) {
+    return results.length === 0 && query !== '' ? [askRow(query)] : results;
   }
 
   function bindRun(index) {

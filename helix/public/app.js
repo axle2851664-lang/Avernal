@@ -367,8 +367,9 @@
       })
       .then(function (body) {
         busy(-1);
-        // The vault just told him something, so the counts may have moved.
-        if (body.canSpeak) {
+        // Nothing to say is not something to say: a kept memory with no
+        // answer behind it must not become an utterance.
+        if (body.canSpeak && typeof body.answer === 'string' && body.answer !== '') {
           return speak(body.answer).then(
             function () { return body; },
             function (err) {

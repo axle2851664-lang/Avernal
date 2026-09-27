@@ -44,6 +44,9 @@ export { MemoryRefused, MemoryStore } from './store.js';
 export { ConversationLog, MAX_TURNS, REPLAY_DEPTH } from './conversation.js';
 export type { Recorded, Turn } from './conversation.js';
 
+export { capturesFrom } from './listen.js';
+export type { Capture } from './listen.js';
+
 export { buildContext, resolveProject } from './context.js';
 export type { ContextOptions } from './context.js';
 

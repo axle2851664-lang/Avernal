@@ -26,6 +26,7 @@ import { draftCapture } from '../core/galaxy/capture.js';
 import { buildGalaxy } from '../core/galaxy/graph.js';
 import {
   buildContext,
+  capturesFrom,
   ConversationLog,
   describeState,
   MemoryRefused,
@@ -887,6 +888,35 @@ app.post('/ask', async (req: Request, res: Response) => {
   }
 
   try {
+    /*
+     * Anything the sentence asked to be kept, kept first.
+     *
+     * Before the model, so "Remember this: …" works with no API key at all —
+     * writing it down is this server's job, not the model's. Every capture is
+     * reported back in the reply: the rule is that Helix does not keep things
+     * quietly, and that holds just as much for something you asked for as for
+     * something it noticed.
+     */
+    const remembered: { text: string; category: string; why: string }[] = [];
+    const notRemembered: string[] = [];
+
+    for (const capture of capturesFrom(question)) {
+      try {
+        const saved = memory.remember({
+          category: capture.category,
+          text: capture.text,
+          reason: capture.reason,
+          source: { origin: capture.origin, detail: 'said "' + capture.trigger + '"' },
+          ...(capture.category === 'short-term' ? { sessionId: SESSION_ID } : {}),
+        });
+        remembered.push({ text: saved.text, category: saved.category, why: saved.reason });
+      } catch (error) {
+        // A refusal is the rules working — a credential, or too long. It is
+        // said out loud rather than swallowed, and it costs no answer.
+        notRemembered.push(error instanceof MemoryRefused ? error.message : 'Could not keep that.');
+      }
+    }
+
     // Facts first: whatever in the vault is actually about this question.
     // groundedNotes returns nothing rather than the best of a bad lot, which
     // is what keeps him from answering confidently out of an unrelated note.
@@ -912,10 +942,41 @@ app.post('/ask', async (req: Request, res: Response) => {
       .recent(REPLAY_DEPTH)
       .map((turn) => ({ question: turn.question, answer: turn.answer }));
 
-    const answer = await mind.answer(question, notesBlock, SYSTEM_PROMPT, {
-      memory: memoryBlock,
-      history,
-    });
+    let answer;
+    try {
+      answer = await mind.answer(question, notesBlock, SYSTEM_PROMPT, {
+        memory: memoryBlock,
+        history,
+      });
+    } catch (error) {
+      /*
+       * No answer, but something was kept.
+       *
+       * Writing it down is this server's job and it has already happened;
+       * failing the whole request would throw that away and leave the user
+       * thinking it had not. So the keeping is reported and the failure is
+       * reported with it, rather than one standing for the other.
+       *
+       * `answer` is null and not a sentence: inventing one here would be
+       * putting words in his mouth, which is the one thing the persona is
+       * built to prevent.
+       */
+      if (remembered.length > 0 && error instanceof MindError) {
+        return res.json({
+          answer: null,
+          answerUnavailable: error.message,
+          grounded: false,
+          sources: [],
+          usedMemory: 0,
+          usedHistory: 0,
+          remembered,
+          ...(notRemembered.length > 0 ? { notRemembered } : {}),
+          recorded: false,
+          canSpeak: false,
+        });
+      }
+      throw error;
+    }
 
     // Written down, unless it carried something that looked like a
     // credential — in which case it is refused rather than redacted, and the
@@ -936,6 +997,8 @@ app.post('/ask', async (req: Request, res: Response) => {
         label: galaxy.nodes[source.id]?.label ?? null,
       })),
       usedMemory: context.items.length,
+      remembered,
+      ...(notRemembered.length > 0 ? { notRemembered } : {}),
       // How much of the conversation he had to hand, and whether this one
       // went into it.
       usedHistory: history.length,
