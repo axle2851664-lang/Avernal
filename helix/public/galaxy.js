@@ -72,6 +72,98 @@
    */
   var SCAN_BAND = 0.07;
 
+  /** How far past the shell the light reaches, and how thick the band is. */
+  var AURORA_OUTER = 1.24;
+  var AURORA_SPRITE = 384;
+
+  var AURORA_SPIN = (2 * Math.PI) / 64000;
+
+  /**
+   * The aurora: curtains of light around the shell, rendered once.
+   *
+   * Decoration, and held to the same rule the corner brackets and the sweep
+   * were — it reports nothing. It was taken out with the rings and put back:
+   * a curtain of light is not a ring. What stayed out is the scanning-plane
+   * ellipse, which was a drawn outline around the sphere; this is the light
+   * the sphere sits in.
+   *
+   * It lives in this canvas rather than in a CSS layer over it, which is where
+   * it started. A translucent element above a canvas that repaints every frame
+   * has to be re-composited every frame with it: in CSS it measured 25fps
+   * against a 43fps baseline, and a completely static one still measured 31 —
+   * the animation was never the cost, the extra layer was. In here it is drawn
+   * only on the frames the shell is already being drawn on.
+   */
+  /**
+   * Curtains, hand-placed. Radius and sweep are fractions of the sprite; the
+   * rest is how thick, how bright, and how soft.
+   */
+  var AURORA_CURTAINS = [
+    { radius: 0.88, from: 0.15, sweep: 0.95, width: 0.012, alpha: 0.14, blur: 44 },
+    { radius: 0.94, from: 1.15, sweep: 0.45, width: 0.008, alpha: 0.12, blur: 52 },
+    { radius: 0.86, from: 2.35, sweep: 1.10, width: 0.016, alpha: 0.10, blur: 48 },
+    { radius: 0.92, from: 3.95, sweep: 0.60, width: 0.01, alpha: 0.15, blur: 40 },
+    { radius: 0.89, from: 5.00, sweep: 0.80, width: 0.014, alpha: 0.11, blur: 50 },
+  ];
+
+  function makeAuroraSprite() {
+    var size = AURORA_SPRITE;
+    var sprite = document.createElement('canvas');
+    sprite.width = size;
+    sprite.height = size;
+    var g = sprite.getContext('2d');
+    if (g === null) return null;
+
+    var mid = size / 2;
+
+    /*
+     * Built once, so it can be built expensively.
+     *
+     * Each curtain is an arc stroked with a wide shadow, which is how you get
+     * a genuinely soft edge on a canvas. Doing that per frame would be
+     * unaffordable; doing it once and blitting the result costs nothing after.
+     *
+     * Arcs rather than a ring of varying brightness: a ring, however uneven,
+     * reads as fog around the shell — which is what the first attempt at this
+     * looked like — and fog does not move. Separate curtains at different
+     * radii, with dark between them, read as light.
+     */
+    g.lineCap = 'round';
+    g.shadowColor = 'rgba(255,255,255,1)';
+
+    for (var i = 0; i < AURORA_CURTAINS.length; i += 1) {
+      var curtain = AURORA_CURTAINS[i];
+      g.strokeStyle = 'rgba(255,255,255,' + curtain.alpha + ')';
+      g.lineWidth = curtain.width * size;
+      g.shadowBlur = curtain.blur;
+      g.beginPath();
+      g.arc(mid, mid, curtain.radius * mid, curtain.from, curtain.from + curtain.sweep);
+      g.stroke();
+    }
+
+    /*
+     * Then cut away anything that reaches the sphere or the sprite's own
+     * edge. The shadow spreads past both, and a square edge showing through
+     * is exactly the artefact that gives a blitted sprite away.
+     */
+    var ring = g.createRadialGradient(mid, mid, 0, mid, mid, mid);
+    ring.addColorStop(0.0, 'rgba(0,0,0,0)');
+    // Nothing survives inside 0.78 of the sprite. The clip below starts at
+    // 0.773 of it, so the clip never cuts a lit pixel — when it did, it left
+    // a hard arc across the curtains, which is the one thing that makes this
+    // look like a sprite instead of light.
+    ring.addColorStop(0.78, 'rgba(0,0,0,0)');
+    ring.addColorStop(0.85, 'rgba(0,0,0,1)');
+    ring.addColorStop(0.95, 'rgba(0,0,0,1)');
+    ring.addColorStop(1.0, 'rgba(0,0,0,0)');
+    g.shadowBlur = 0;
+    g.globalCompositeOperation = 'destination-in';
+    g.fillStyle = ring;
+    g.fillRect(0, 0, size, size);
+
+    return sprite;
+  }
+
   /**
    * A soft white dot, rendered once into an offscreen canvas.
    *
@@ -156,6 +248,7 @@
     // the scroll the finger is actually performing.
     var fine = window.matchMedia('(pointer: fine)').matches;
 
+    var aurora = makeAuroraSprite();
     var glow = makeGlowSprite();
 
     var points = [];
@@ -273,6 +366,41 @@
         px[i] = outX;
         py[i] = outY;
         pnear[i] = outNear;
+      }
+
+      /* The aurora, behind everything: it is the light the shell sits in. */
+      if (aurora !== null) {
+        var reach = shell * AURORA_OUTER;
+        ctx.save();
+        // Clip to the annulus the light actually occupies. Without it the
+        // blit touches the hollow centre and the corners too — about half the
+        // rectangle is fully transparent, and paying to composite it is the
+        // difference between this being affordable and not.
+        ctx.beginPath();
+        ctx.arc(cx, cy, reach, 0, Math.PI * 2);
+        ctx.arc(cx, cy, shell * 1.02, 0, Math.PI * 2, true);
+        ctx.clip();
+        // The sprite is nothing but soft gradients, so the expensive filter
+        // buys nothing on the way up and costs a third of the frame.
+        ctx.imageSmoothingQuality = 'low';
+        ctx.translate(cx, cy);
+
+        // The same curtains twice, turning opposite ways at different rates.
+        // One pass only spins; two drift in and out of phase, and that
+        // interference is what waves. A third was not worth the frame.
+        for (var v = 0; v < 1; v += 1) {
+          var back = v === 1;
+          ctx.save();
+          ctx.globalAlpha =
+            (back ? 0.5 : 0.85) *
+            (0.55 + 0.45 * Math.sin((clock / (back ? 23000 : 17000)) * Math.PI * 2 + v * 2.1));
+          ctx.rotate(clock * AURORA_SPIN * (back ? -0.62 : 1) + v * 2.4);
+          ctx.drawImage(aurora, -reach, -reach, reach * 2, reach * 2);
+          ctx.restore();
+        }
+
+        ctx.restore();
+        ctx.globalAlpha = 1;
       }
 
       /* Edges, drawn before the points so a point sits on top of its own

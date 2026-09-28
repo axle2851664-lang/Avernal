@@ -193,20 +193,27 @@ describe('public/galaxy.js', () => {
     expect(galaxy).toContain('marked');
   });
 
-  it('draws no rings around the sphere', () => {
-    // The aurora curtains and the scanning-plane ellipse both read as rings.
-    // The sphere is the composition; anything drawn around it is furniture,
-    // and both of these are easy to reintroduce by habit.
-    for (const gone of ['aurora', 'AURORA', 'reticle']) {
-      expect(galaxy).not.toContain(gone);
-    }
+  it('draws no outline around the sphere, but keeps the light around it', () => {
+    // These were removed together as "the rings" and then separated: a drawn
+    // outline around the sphere is furniture, a curtain of light is not.
+    //
+    // Out: the reticle, and the scanning-plane ellipse that traced where the
+    // sweep had reached.
+    expect(galaxy).not.toContain('reticle');
+    expect(galaxy).not.toContain('one ellipse at the current latitude');
+
+    // In: the aurora, built once at mount and blitted, never rebuilt in the
+    // frame loop — which is the only reason it is affordable.
+    expect(galaxy).toContain('function makeAuroraSprite()');
+    expect(galaxy).toContain('var aurora = makeAuroraSprite();');
+    const draw = galaxy.slice(galaxy.indexOf('function draw()'));
+    expect(draw).not.toContain('makeAuroraSprite(');
   });
 
   it('keeps the sweep as an effect rather than an outline', () => {
     // Points still brighten as the band passes over them. What went is the
     // ellipse that drew where the band was.
     expect(galaxy).toContain('SCAN_BAND');
-    expect(galaxy).not.toContain('one ellipse at the current latitude');
   });
 
   it('builds its one sprite once rather than every frame', () => {
