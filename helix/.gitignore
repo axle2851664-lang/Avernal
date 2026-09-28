@@ -4,6 +4,9 @@ dist/
 generated_images/
 generated_videos/
 *.png
+# ...except the app's own icons, which are source, not output.
+!public/icon-*.png
+!public/apple-touch-icon.png
 *.gif
 *.mp4
 __pycache__/

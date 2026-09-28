@@ -6,6 +6,18 @@
 <title>Helix</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
 <link rel="stylesheet" href="/helix.css" />
+
+<!-- Installable as an app. The colours match the page so the window chrome
+     and the splash screen do not flash white on the way in. -->
+<link rel="manifest" href="/manifest.webmanifest" />
+<meta name="theme-color" content="#050608" />
+<!-- iOS reads none of the manifest: it wants its own tags, and it wants a
+     PNG. Without these a home-screen Helix opens in a Safari window with a
+     white status bar and a screenshot for an icon. -->
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Helix" />
+<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 </head>
 <body>
 <!--
@@ -150,6 +162,7 @@
   </div>
 </div>
 
+<script src="/sw-register.js"></script>
 <script src="/galaxy.js"></script>
 <script src="/app.js"></script>
 <script src="/console.js"></script>

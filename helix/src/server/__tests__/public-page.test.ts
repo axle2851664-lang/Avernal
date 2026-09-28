@@ -272,6 +272,82 @@ describe('public/galaxy.js', () => {
   });
 });
 
+describe('public/sw.js', () => {
+  const sw = readFileSync(join(PUBLIC, 'sw.js'), 'utf8');
+  const manifest = JSON.parse(readFileSync(join(PUBLIC, 'manifest.webmanifest'), 'utf8')) as {
+    display: string;
+    start_url: string;
+    icons: { src: string; sizes: string; purpose: string }[];
+  };
+
+  it('caches the shell and no route that answers with data', () => {
+    // A stale /galaxy or /settings would have Helix reporting a vault that
+    // has since changed, which is worse than not loading at all.
+    const listed = sw.slice(sw.indexOf('SHELL_FILES = ['), sw.indexOf('];', sw.indexOf('SHELL_FILES = [')));
+    // Exact entries, not substrings: /galaxy.js is the renderer and belongs
+    // in the shell, /galaxy is the route that answers with the vault and does
+    // not. A loose match cannot tell them apart.
+    const entries = [...listed.matchAll(/'([^']+)'/g)].map((m) => m[1]);
+    for (const route of ['/galaxy', '/health', '/settings', '/ask', '/voice/speak', '/voice/listen']) {
+      expect(entries, route).not.toContain(route);
+    }
+    // And the shell really is only the screen.
+    expect(entries).toContain('/app.js');
+    expect(entries).toContain('/galaxy.js');
+  });
+
+  it('lets a failed data request fail instead of handing back the page', () => {
+    // Verified by stopping the server: the first version answered every miss
+    // with the shell, so /galaxy returned 200 and a page of HTML, and the
+    // screen reported a vault it had never read. Only a navigation may fall
+    // back to the shell.
+    expect(sw).toContain("if (request.mode === 'navigate') return caches.match('/index.html');");
+    expect(sw).toContain("throw new Error('offline');");
+  });
+
+  it('asks the network first, so a local edit is never served stale', () => {
+    // There is no round trip to save — the server is on the same machine —
+    // so a cache-first worker would buy nothing but yesterday's JavaScript.
+    const handler = sw.slice(sw.indexOf("addEventListener('fetch'"));
+    expect(handler.indexOf('fetch(request)')).toBeLessThan(handler.indexOf('caches.match'));
+  });
+
+  it('leaves anything that is not a plain read alone', () => {
+    expect(sw).toContain("if (request.method !== 'GET') return;");
+    expect(sw).toContain('if (url.origin !== self.location.origin) return;');
+  });
+
+  it('is offered a manifest a browser will actually install', () => {
+    expect(manifest.display).toBe('standalone');
+    expect(manifest.start_url).toBe('/');
+    const sizes = manifest.icons.map((i) => i.sizes);
+    // Chrome wants a 192 and a 512; Android wants a maskable one or it puts
+    // the square icon inside a white circle.
+    expect(sizes).toContain('192x192');
+    expect(sizes).toContain('512x512');
+    expect(manifest.icons.some((i) => i.purpose === 'maskable')).toBe(true);
+    for (const icon of manifest.icons) {
+      expect(() => readFileSync(join(PUBLIC, icon.src.replace(/^\//, '')))).not.toThrow();
+    }
+  });
+
+  it('carries the tags iOS needs, which it takes from nowhere else', () => {
+    // iOS reads none of the manifest. Without these a home-screen Helix opens
+    // in a Safari window with a white bar and a screenshot for an icon.
+    expect(page).toContain('apple-mobile-web-app-capable');
+    expect(page).toContain('rel="apple-touch-icon"');
+    expect(() => readFileSync(join(PUBLIC, 'apple-touch-icon.png'))).not.toThrow();
+  });
+
+  it('registers from a file, so the page still has no inline script', () => {
+    expect(page).toContain('src="/sw-register.js"');
+    const register = readFileSync(join(PUBLIC, 'sw-register.js'), 'utf8');
+    expect(register).toContain("navigator.serviceWorker.register('/sw.js')");
+    // A failed registration costs the install prompt and nothing else.
+    expect(register).toContain('.catch(');
+  });
+});
+
 describe('public/console.js', () => {
   const cmd = readFileSync(join(PUBLIC, 'console.js'), 'utf8');
   const app = readFileSync(join(PUBLIC, 'app.js'), 'utf8');
