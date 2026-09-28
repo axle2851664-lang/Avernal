@@ -378,19 +378,15 @@
         ctx.lineTo(px[marked] + 16, py[marked]);
         ctx.stroke();
 
-        if (marked !== hover) {
-          ctx.font = '11px ui-monospace, "SF Mono", Menlo, Consolas, monospace';
-          ctx.fillStyle = 'rgba(255,255,255,0.8)';
-          var mt = points[marked].label;
-          var mw = ctx.measureText(mt).width;
-          var mx = px[marked] + 20;
-          if (mx + mw > width - 4) mx = px[marked] - 20 - mw;
-          ctx.fillText(mt, mx, py[marked] + 4);
-        }
       }
 
-      /* Hover: name the note under the pointer. The label is the real one from
-         the vault, which is why this is worth the hit test. */
+      /* Hover: ring the note under the pointer.
+       *
+       * It used to write the note's name and link count beside it. Nothing is
+       * written on this screen now, so the ring is the whole of it — which
+       * still says "there is a note here and it is this one", and the console
+       * is where you go for its name.
+       */
       hover = -1;
       if (fine && pointerX >= 0) {
         var best = 14 * 14;
@@ -404,22 +400,12 @@
       }
 
       if (hover >= 0) {
-        var hp = points[hover];
         ctx.beginPath();
         ctx.arc(px[hover], py[hover], 7, 0, Math.PI * 2);
         ctx.strokeStyle = 'rgba(255,255,255,0.55)';
         ctx.lineWidth = 1;
         ctx.stroke();
 
-        var text = hp.label + '  ·  ' + hp.degree + (hp.degree === 1 ? ' link' : ' links');
-        ctx.font = '11px ui-monospace, "SF Mono", Menlo, Consolas, monospace';
-        ctx.fillStyle = 'rgba(255,255,255,0.86)';
-        // Flip the label to the other side near the right edge so it never
-        // runs off the canvas.
-        var textWidth = ctx.measureText(text).width;
-        var lx = px[hover] + 12;
-        if (lx + textWidth > width - 4) lx = px[hover] - 12 - textWidth;
-        ctx.fillText(text, lx, py[hover] + 4);
       }
 
       canvas.style.cursor = hover >= 0 ? 'crosshair' : '';

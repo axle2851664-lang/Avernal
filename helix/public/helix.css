@@ -980,13 +980,6 @@ a:hover { color: var(--hx-text); border-color: var(--hx-line-active); }
   word-break: break-all;
 }
 
-.hx-cmd__foot {
-  display: flex;
-  gap: 1.25rem;
-  flex-wrap: wrap;
-  padding: 0.6rem 1rem;
-  border-top: 1px solid var(--hx-line);
-}
 
 /* ------------------------------------------------------------- open button */
 
@@ -1028,5 +1021,4 @@ a:hover { color: var(--hx-text); border-color: var(--hx-line-active); }
 @media (max-width: 560px) {
   .hx-cmd { padding: 6vh 0.75rem 0.75rem; }
   .hx-cmd__hint { display: none; }
-  .hx-cmd__foot { display: none; }
 }

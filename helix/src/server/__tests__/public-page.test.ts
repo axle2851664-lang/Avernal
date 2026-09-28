@@ -181,6 +181,18 @@ describe('public/helix.css', () => {
 describe('public/galaxy.js', () => {
   const galaxy = readFileSync(join(PUBLIC, 'galaxy.js'), 'utf8');
 
+  it('writes nothing on the canvas', () => {
+    // The sphere used to label the note under the pointer, and the note that
+    // SEARCH had marked. Nothing is written on this screen now, so the ring
+    // and the crosshair are the whole of it — a canvas label is invisible to
+    // the markup test, which is why it gets its own.
+    for (const drawn of ['fillText', 'measureText', 'ctx.font']) {
+      expect(galaxy, drawn).not.toContain(drawn);
+    }
+    // The markers themselves stay: SEARCH still has to be able to point.
+    expect(galaxy).toContain('marked');
+  });
+
   it('draws no rings around the sphere', () => {
     // The aurora curtains and the scanning-plane ellipse both read as rings.
     // The sphere is the composition; anything drawn around it is furniture,
@@ -268,6 +280,15 @@ describe('public/console.js', () => {
     expect(cmd).toContain('api().openSettings()');
     expect(app).toContain('openSettings:');
     expect(page).toContain('id="keys-panel"');
+  });
+
+  it('opens on nothing, not on a list of every command', () => {
+    // Opening on all fourteen commands put a wall of text on a screen that
+    // has no other text on it — and a wall you read once and never again.
+    // Typing narrows; HELP prints the list when it is actually wanted.
+    expect(cmd).toContain("if (query === '') return [];");
+    // No placeholder either: the prompt glyph is what says "type here".
+    expect(page).not.toMatch(/id="cmd-input"[\s\S]{0,400}placeholder=/);
   });
 
   it('separates the argument from every command that takes one', () => {

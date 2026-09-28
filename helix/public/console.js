@@ -460,8 +460,18 @@
       return results;
     }
 
+    /*
+     * Nothing until something is typed.
+     *
+     * The console used to open on all fourteen commands. That is a wall of
+     * text on a screen that has no other text on it, and it is a wall you
+     * read once and then never again. Typing narrows to what matches; HELP
+     * still prints the whole list when you actually want it.
+     */
+    if (query === '') return [];
+
     for (var i = 0; i < COMMANDS.length; i += 1) {
-      if (query === '' || matches(COMMANDS[i].name, query)) {
+      if (matches(COMMANDS[i].name, query)) {
         results.push(commandRow(COMMANDS[i], ''));
       }
     }
@@ -546,7 +556,9 @@
       list.appendChild(item);
     }
 
-    if (rows.length === 0) {
+    // An empty query draws nothing at all — not even "nothing matches",
+    // which would be a line of text saying there are no lines of text.
+    if (rows.length === 0 && input.value.trim() !== '') {
       var empty = document.createElement('li');
       empty.className = 'hx-cmd__row hx-cmd__row--empty';
       empty.textContent = 'Nothing matches. Try HELP.';
