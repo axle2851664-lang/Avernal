@@ -228,25 +228,28 @@ describe('public/galaxy.js', () => {
     expect(galaxy).toContain('function shellRadius()');
   });
 
-  it('breathes inward while he talks, not outward', () => {
-    // Measured: at rest the sphere is 828 of the 900 pixels the stage is
-    // tall, so there is nothing to grow into — an outward swell pushed the
-    // poles off screen and the motion capped out flat. It contracts between
-    // syllables instead, which is the same relative movement with somewhere
-    // to go.
-    expect(galaxy).toContain('var VOICE_DUCK');
-    expect(galaxy).toContain('shell = shellBase * (1 - speaking * VOICE_DUCK * (1 - voice));');
-    // The resting size is untouched, so the screen looks the same when he is
-    // not talking.
-    expect(galaxy).toContain('shell = shellBase;');
+  it('leaves the sphere room to grow before asking it to', () => {
+    // The first attempt at this grew a sphere that already measured 828 of
+    // the 900 pixels the stage was tall, so it pushed its own poles off the
+    // screen and the motion capped out flat against the canvas edge. The
+    // resting size has to sit inside its ceiling for the voice to have
+    // anywhere to push it.
+    expect(galaxy).toContain('Math.min(width * 0.30, height * 0.38)');
+    expect(galaxy).toContain('shell = shellBase * (1 + voice * VOICE_SWELL);');
+
+    // And the headroom has to actually cover the swell: at the height-bound
+    // limit, resting diameter plus the swell must still fit the stage.
+    const swell = Number(/var VOICE_SWELL = ([\d.]+)/.exec(galaxy)?.[1]);
+    const factor = Number(/Math\.min\(width \* [\d.]+, height \* ([\d.]+)\)/.exec(galaxy)?.[1]);
+    expect(factor * 2 * (1 + swell)).toBeLessThan(1);
   });
 
-  it('tells a silence between words from having stopped talking', () => {
-    // Both arrive as "quiet". Zero has to keep the shell drawn in or it
-    // snaps back to full size in every gap; null has to release it or it
-    // stays drawn in after he has finished.
-    expect(galaxy).toContain('if (level === null || level === undefined) {');
-    expect(galaxy).toContain('speakingTarget = 0;');
+  it('is silent and finished at the same resting size', () => {
+    // They were told apart when the shell shrank toward its resting size;
+    // growing away from it, a gap between two words and having stopped are
+    // the same thing, and a gate for them would be dead weight.
+    expect(galaxy).not.toContain('speakingTarget');
+    expect(galaxy).toContain('level === null || level === undefined');
     expect(app).toContain('view.setVoice(null)');
   });
 

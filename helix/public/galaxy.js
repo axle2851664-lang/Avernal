@@ -278,10 +278,6 @@
      */
     var voice = 0;
     var voiceTarget = 0;
-    // Whether he is speaking at all, as against speaking quietly. Eased, so
-    // the shell settles into and out of breathing rather than snapping.
-    var speaking = 0;
-    var speakingTarget = 0;
     var tilt = 0;
     var tiltTarget = 0;
     var width = 0;
@@ -302,32 +298,31 @@
     var marked = -1;
 
     /**
-     * How far from the centre the outermost point may fall.
+     * How far from the centre the outermost point may fall, at rest.
      *
      * Width and height are weighted separately rather than taking the smaller
-     * of the two: the stage is wide and short on a desktop and tall and narrow
-     * on a phone, and one factor cannot serve both. The width factor is the
-     * one that keeps the shell clear of the corner readouts.
+     * of the two: the stage is wide and short on a desktop and tall and
+     * narrow on a phone, and one factor cannot serve both.
+     *
+     * Both factors are deliberately short of filling the stage. At 0.46 of
+     * the height the sphere measured 828 of the 900 pixels the stage was
+     * tall, which left it nothing to grow into — it has to sit inside its own
+     * ceiling for the voice to have somewhere to push it. At rest it is about
+     * three quarters of the height; at full voice, about seven eighths.
      */
     function shellRadius() {
-      return Math.min(width * 0.36, height * 0.46);
+      return Math.min(width * 0.30, height * 0.38);
     }
 
     /*
-     * How far the shell draws in between syllables, as a fraction of its
-     * resting size.
+     * How far the shell grows at full voice, as a fraction of its resting
+     * size. Silence is the resting size; a loud syllable is this much larger.
      *
-     * It contracts rather than expands, and that is not a stylistic choice:
-     * at rest the sphere is already 828 of the 900 pixels the stage is tall
-     * (measured), so there is nothing to grow into — swelling it pushed the
-     * poles off the top and bottom of the screen and the motion capped out
-     * flat. Breathing down from full size is the same relative movement with
-     * somewhere to go.
-     *
-     * Full voice is the resting size. Silence between words is this much
-     * smaller.
+     * This once ran the other way — drawing in between syllables rather than
+     * pushing out on them — because the sphere filled the stage and had
+     * nowhere to expand. shellRadius() now leaves the room, so it grows.
      */
-    var VOICE_DUCK = 0.12;
+    var VOICE_SWELL = 0.16;
 
     function resize() {
       var rect = canvas.getBoundingClientRect();
@@ -588,8 +583,7 @@
        * instead, which is what a voice looks like.
        */
       voice += (voiceTarget - voice) * (voiceTarget > voice ? 0.35 : 0.08);
-      speaking += (speakingTarget - speaking) * 0.12;
-      shell = shellBase * (1 - speaking * VOICE_DUCK * (1 - voice));
+      shell = shellBase * (1 + voice * VOICE_SWELL);
 
       // At full activity the shell turns half again as fast and the pulses
       // run at double. Both are multiplications already in the loop, so this
@@ -696,24 +690,22 @@
       },
 
       /**
-       * How loud Helix is, 0 to 1. The shell breathes with it.
+       * How loud Helix is, 0 to 1. The shell grows with it.
        *
-       * Called every frame while he is speaking, and with null when he
-       * stops — null is not the same as 0, which is a silence between two
-       * words. Zero means "speaking, and quiet just now", so the shell stays
-       * drawn in; null means "not speaking", and it returns to full size.
+       * Called every frame while he is speaking, and with null when he stops.
+       * Null and zero do the same thing here — the shell grows from its
+       * resting size rather than toward it, so a silence between two words
+       * and having finished are both "back to resting". They needed telling
+       * apart when this ran the other way round.
        *
        * Eased in the loop, so this is only a target, and under reduced motion
        * there is no loop and the shell is left alone.
        */
       setVoice: function (level) {
-        if (level === null || level === undefined) {
-          speakingTarget = 0;
-          voiceTarget = 0;
-          return null;
-        }
-        speakingTarget = 1;
-        voiceTarget = Math.max(0, Math.min(1, Number(level) || 0));
+        voiceTarget =
+          level === null || level === undefined
+            ? 0
+            : Math.max(0, Math.min(1, Number(level) || 0));
         return voiceTarget;
       },
 
