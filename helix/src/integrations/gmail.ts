@@ -19,14 +19,62 @@ export interface Email {
 
 export class GmailSync {
   private auth: OAuth2Client;
+  private config: GmailConfig;
+  /*
+   * Kept so the client can be rebuilt.
+   *
+   * A new OAuth2Client is a new event emitter, so the refresh handler has to
+   * be re-attached to it or renewed tokens stop being persisted — silently,
+   * and only an hour later.
+   */
+  private refreshHandler:
+    | ((accessToken: string, refreshToken: string | null, expiresAt?: number) => void)
+    | null = null;
 
   constructor(config: GmailConfig) {
+    this.config = { ...config };
     this.auth = new OAuth2Client(config.clientId, config.clientSecret, config.redirectUrl);
   }
 
-  getAuthUrl(scopes: string[] = ['https://www.googleapis.com/auth/gmail.readonly']) {
+  /**
+   * Swap in a different client id and secret without a restart.
+   *
+   * Any tokens held are dropped rather than carried over: they were issued to
+   * the previous OAuth client and are not valid for this one. Saying nothing
+   * and keeping them would present later as an authorisation that mysteriously
+   * stopped working.
+   */
+  reconfigure(config: GmailConfig): void {
+    this.config = { ...config };
+    this.auth = new OAuth2Client(config.clientId, config.clientSecret, config.redirectUrl);
+    if (this.refreshHandler !== null) this.attachRefresh(this.refreshHandler);
+  }
+
+  /** Whether it has been given a client at all. */
+  get configured(): boolean {
+    return this.config.clientId !== '' && this.config.clientSecret !== '';
+  }
+
+  private attachRefresh(
+    handler: (accessToken: string, refreshToken: string | null, expiresAt?: number) => void
+  ): void {
+    this.auth.on('tokens', (tokens) => {
+      if (!tokens.access_token) return;
+      handler(tokens.access_token, tokens.refresh_token ?? null, tokens.expiry_date ?? undefined);
+    });
+  }
+
+  getAuthUrl(
+    scopes: string[] = ['https://www.googleapis.com/auth/gmail.readonly'],
+    redirectUrl?: string
+  ) {
     return this.auth.generateAuthUrl({
       access_type: 'offline',
+      // Overridden per request so the callback comes back to wherever Helix
+      // was actually reached — localhost on this machine, the tailnet name
+      // from a phone. Both have to be registered with Google; whichever one
+      // was used to start the flow is the one Google is sent.
+      ...(redirectUrl === undefined ? {} : { redirect_uri: redirectUrl }),
       // Google returns a refresh token only on the first authorisation unless
       // consent is re-prompted; without one the connection cannot outlive the
       // access token's hour.
@@ -42,14 +90,19 @@ export class GmailSync {
    * lost outright.
    */
   onTokenRefresh(handler: (accessToken: string, refreshToken: string | null, expiresAt?: number) => void) {
-    this.auth.on('tokens', (tokens) => {
-      if (!tokens.access_token) return;
-      handler(tokens.access_token, tokens.refresh_token ?? null, tokens.expiry_date ?? undefined);
-    });
+    this.refreshHandler = handler;
+    this.attachRefresh(handler);
   }
 
-  async setCredentials(code: string) {
-    const { tokens } = await this.auth.getToken(code);
+  async setCredentials(code: string, redirectUrl?: string) {
+    // Google requires the redirect_uri here to be byte-identical to the one
+    // the flow was started with, so the caller passes the same value back.
+    // Branched rather than passed as a union: the two forms are separate
+    // overloads and a union satisfies neither.
+    const { tokens } =
+      redirectUrl === undefined
+        ? await this.auth.getToken(code)
+        : await this.auth.getToken({ code, redirect_uri: redirectUrl });
     this.auth.setCredentials(tokens);
     return tokens;
   }

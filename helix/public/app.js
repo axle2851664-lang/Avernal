@@ -428,10 +428,11 @@
       .then(function (body) {
         var saved = (body.saved || []).length;
         var message = saved === 1 ? '1 setting saved.' : saved + ' settings saved.';
-        // Said explicitly rather than implied: a key that is saved but not
-        // yet in use looks exactly like one that did not save.
-        if ((body.needsRestart || []).length > 0) {
-          message += ' Restart Helix for ' + body.needsRestart.join(', ') + '.';
+        // A new Google client cannot use tokens issued to the old one, so the
+        // account has to be connected again. Said out loud, because a silently
+        // dropped connection looks exactly like one that broke on its own.
+        if ((body.reconnect || []).length > 0) {
+          message += ' Connect ' + body.reconnect.join(' and ') + ' again — Ctrl K, CONNECT.';
         }
         keysStatus(message);
         // Rebuilt from what came back, so the fields show the new hints and

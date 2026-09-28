@@ -102,3 +102,68 @@ describe('services', () => {
     expect(serviceLabel('youtube')).toBe('YouTube');
   });
 });
+
+/*
+ * Where Google is told to send them back.
+ *
+ * These mirror the server's own helpers rather than importing them, because
+ * they live in index.ts, which starts a listener on import. The behaviour
+ * they describe is exercised for real against a running server in the relay
+ * checks; what is pinned here is the rule, so a change to it is deliberate.
+ */
+function reachableHost(host: string): boolean {
+  const name = (host.split(':')[0] ?? '').toLowerCase();
+  if (name === 'localhost' || name === '127.0.0.1' || name === '::1' || name === '[::1]') return true;
+  if (name.endsWith('.ts.net')) return true;
+  if (/^10\./.test(name) || /^192\.168\./.test(name)) return true;
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(name)) return true;
+  if (/^100\.(6[4-9]|[7-9]\d|1[0-1]\d|12[0-7])\./.test(name)) return true;
+  return false;
+}
+
+describe('the callback origin', () => {
+  it('follows the places Helix is actually reached on', () => {
+    // One fixed callback cannot serve both: on this machine Helix is
+    // localhost, from a phone it is a tailnet name, and Google compares the
+    // redirect_uri byte for byte.
+    for (const host of [
+      'localhost:3000',
+      '127.0.0.1:3000',
+      'helix.tail1234.ts.net',
+      '100.101.102.103:3000',
+      '192.168.1.40:3000',
+      '10.0.0.5:3000',
+      '172.16.0.9:3000',
+    ]) {
+      expect(reachableHost(host), host).toBe(true);
+    }
+  });
+
+  it('refuses a host Helix could not be reached on', () => {
+    // The Host header is the caller's to set and this value ends up in a URL
+    // Google is told to send an authorisation code to.
+    for (const host of [
+      'evil.example.com',
+      'ts.net.attacker.com',
+      'google.com',
+      '8.8.8.8',
+      '',
+      'notts.net.example',
+    ]) {
+      expect(reachableHost(host), host).toBe(false);
+    }
+  });
+
+  it('is not fooled by a tailnet name as a prefix', () => {
+    // endsWith, not includes: "helix.ts.net.attacker.com" is not a tailnet.
+    expect(reachableHost('helix.ts.net.attacker.com')).toBe(false);
+    expect(reachableHost('helix.ts.net')).toBe(true);
+  });
+
+  it('does not mistake 100.x outside the tailnet range for one', () => {
+    expect(reachableHost('100.63.0.1')).toBe(false);
+    expect(reachableHost('100.128.0.1')).toBe(false);
+    expect(reachableHost('100.64.0.1')).toBe(true);
+    expect(reachableHost('100.127.255.254')).toBe(true);
+  });
+});

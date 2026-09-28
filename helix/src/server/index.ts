@@ -110,17 +110,80 @@ function isPrivateNetwork(ip: string): boolean {
   return false;
 }
 
-const gmailSync = new GmailSync({
-  clientId: process.env.GMAIL_CLIENT_ID || '',
-  clientSecret: process.env.GMAIL_CLIENT_SECRET || '',
-  redirectUrl: process.env.GMAIL_REDIRECT_URL || 'http://localhost:3000/auth/gmail/callback',
-});
+/**
+ * Where Google should send them back.
+ *
+ * Derived from the request rather than fixed at startup, because there is no
+ * one right answer: on this machine Helix is localhost, from a phone over
+ * Tailscale it is a .ts.net name, and the redirect_uri Google is given has to
+ * be the one the person is actually using or the callback lands nowhere.
+ * Both need registering in the Google console; whichever started the flow is
+ * the one sent.
+ *
+ * An explicitly configured URL always wins, so anyone who needs an exact
+ * value can still pin it.
+ */
+function callbackUrl(req: Request, service: RelayService): string {
+  const configured = (process.env[service.toUpperCase() + '_REDIRECT_URL'] ?? '').trim();
+  if (configured !== '') return configured;
 
-const youtubeSync = new YouTubeSync({
-  clientId: process.env.YOUTUBE_CLIENT_ID || '',
-  clientSecret: process.env.YOUTUBE_CLIENT_SECRET || '',
-  redirectUrl: process.env.YOUTUBE_REDIRECT_URL || 'http://localhost:3000/auth/youtube/callback',
-});
+  const host = req.get('host') ?? '';
+  // The Host header is the caller's to set, and this value ends up in a URL
+  // Google is told to send an authorisation code to. Google will only accept
+  // a redirect_uri already registered in the project, so the reach is small
+  // either way — but a header nobody checked is not where to find that out.
+  if (!reachableHost(host)) {
+    return 'http://localhost:' + PORT + '/auth/' + service + '/callback';
+  }
+  return forwardedProtocol(req) + '://' + host + '/auth/' + service + '/callback';
+}
+
+/** Hosts Helix could plausibly be reached on: this machine, or your tailnet. */
+function reachableHost(host: string): boolean {
+  const name = (host.split(':')[0] ?? '').toLowerCase();
+  if (name === 'localhost' || name === '127.0.0.1' || name === '::1' || name === '[::1]') return true;
+  if (name.endsWith('.ts.net')) return true;
+  if (/^10\./.test(name) || /^192\.168\./.test(name)) return true;
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(name)) return true;
+  // Tailscale's own range.
+  if (/^100\.(6[4-9]|[7-9]\d|1[0-1]\d|12[0-7])\./.test(name)) return true;
+  return false;
+}
+
+/**
+ * http or https, accounting for a local TLS terminator.
+ *
+ * `tailscale serve` holds the certificate and forwards plain HTTP to this
+ * process, so req.protocol says http and the redirect_uri would come out
+ * wrong — Google would reject it as unregistered. The forwarded header says
+ * otherwise, and is trusted only from a loopback peer: from anywhere else it
+ * is just something the caller typed. Express's own `trust proxy` is not used
+ * because it would also make req.ip follow X-Forwarded-For, and that is what
+ * the private-network check reads.
+ */
+function forwardedProtocol(req: Request): string {
+  const peer = (req.socket.remoteAddress ?? '').replace(/^::ffff:/, '');
+  if (peer === '127.0.0.1' || peer === '::1') {
+    const header = req.headers['x-forwarded-proto'];
+    const first = (Array.isArray(header) ? header[0] : header) ?? '';
+    const proto = (first.split(',')[0] ?? '').trim().toLowerCase();
+    if (proto === 'https' || proto === 'http') return proto;
+  }
+  return req.protocol;
+}
+
+function googleConfig(service: RelayService): { clientId: string; clientSecret: string; redirectUrl: string } {
+  const prefix = service.toUpperCase();
+  return {
+    clientId: process.env[prefix + '_CLIENT_ID'] ?? '',
+    clientSecret: process.env[prefix + '_CLIENT_SECRET'] ?? '',
+    // A placeholder: every call that matters passes the real one per request.
+    redirectUrl: process.env[prefix + '_REDIRECT_URL'] ?? '',
+  };
+}
+
+const gmailSync = new GmailSync(googleConfig('gmail'));
+const youtubeSync = new YouTubeSync(googleConfig('youtube'));
 
 // Backed by a file so a restart does not silently drop every connection.
 const tokenStore = new TokenStore(DATA_ROOT);
@@ -194,14 +257,16 @@ app.use('/generated_videos', express.static(join(DATA_ROOT, 'generated_videos'))
  * each integration — Helix reads mail and videos, and has no way to send,
  * delete or modify anything.
  */
-const relays: Readonly<Record<RelayService, { readonly getAuthUrl: () => string; readonly exchange: (code: string) => Promise<{ access_token?: string | null | undefined; refresh_token?: string | null | undefined; expiry_date?: number | null | undefined }> }>> = {
+const relays: Readonly<Record<RelayService, { readonly getAuthUrl: (redirectUrl: string) => string; readonly exchange: (code: string, redirectUrl: string) => Promise<{ access_token?: string | null | undefined; refresh_token?: string | null | undefined; expiry_date?: number | null | undefined }>; readonly configured: () => boolean }>> = {
   gmail: {
-    getAuthUrl: () => gmailSync.getAuthUrl(),
-    exchange: (code) => gmailSync.setCredentials(code),
+    getAuthUrl: (redirectUrl) => gmailSync.getAuthUrl(undefined, redirectUrl),
+    exchange: (code, redirectUrl) => gmailSync.setCredentials(code, redirectUrl),
+    configured: () => gmailSync.configured,
   },
   youtube: {
-    getAuthUrl: () => youtubeSync.getAuthUrl(),
-    exchange: (code) => youtubeSync.setCredentials(code),
+    getAuthUrl: (redirectUrl) => youtubeSync.getAuthUrl(undefined, redirectUrl),
+    exchange: (code, redirectUrl) => youtubeSync.setCredentials(code, redirectUrl),
+    configured: () => youtubeSync.configured,
   },
 };
 
@@ -228,7 +293,19 @@ app.get('/auth/:service/start', (req: Request, res: Response) => {
     return res.status(404).json({ error: 'Helix does not connect that service' });
   }
 
-  const url = new URL(relays[service].getAuthUrl());
+  // Said here rather than by Google, which answers a missing client id with
+  // a page about an invalid request that names nothing you can act on.
+  if (!relays[service].configured()) {
+    const missing = service.toUpperCase();
+    const message =
+      'Set ' + missing + '_CLIENT_ID and ' + missing + '_CLIENT_SECRET first — Ctrl K, SETTINGS.';
+    if (req.query.json === '1' || req.get('accept')?.includes('application/json') === true) {
+      return res.status(503).json({ error: message });
+    }
+    return res.status(503).send(message);
+  }
+
+  const url = new URL(relays[service].getAuthUrl(callbackUrl(req, service)));
   url.searchParams.set('state', createState(service, RELAY_SECRET));
   const authUrl = url.toString();
 
@@ -286,7 +363,10 @@ app.get('/auth/:service/callback', async (req: Request, res: Response) => {
   }
 
   try {
-    const tokens = await relays[service].exchange(code);
+    // The same URL the flow was started with — Google compares them byte for
+    // byte, and this request arrived at that very origin, so deriving it the
+    // same way gives the same answer.
+    const tokens = await relays[service].exchange(code, callbackUrl(req, service));
     const refreshToken = tokens.refresh_token ?? null;
 
     tokenStore.set(service, {
@@ -317,13 +397,20 @@ app.get('/auth/:service/callback', async (req: Request, res: Response) => {
 });
 
 /** What is connected, without saying anything about the tokens themselves. */
-app.get('/auth/status', (_req: Request, res: Response) => {
+app.get('/auth/status', (req: Request, res: Response) => {
   res.json({
     services: RELAY_SERVICES.map((service) => ({
       service,
       label: serviceLabel(service),
       connected: tokenStore.has(service),
+      // Whether Helix has a client at all, which is a different question from
+      // whether it has been authorised with one.
+      configured: relays[service].configured(),
       start: '/auth/' + service + '/start',
+      // What to paste into the Google console for this origin. Getting it
+      // wrong is the single commonest way this flow fails, and Google's error
+      // page does not tell you what it expected.
+      callback: callbackUrl(req, service),
     })),
   });
 });
@@ -674,14 +761,32 @@ app.post('/settings', (req: Request, res: Response) => {
     mind = HelixMind.fromEnvironment();
   }
 
-  const needsRestart = saved.filter(
-    (key) => key.startsWith('GMAIL_') || key.startsWith('YOUTUBE_')
-  );
+  /*
+   * The Google clients too, now that they can be rebuilt in place.
+   *
+   * Any tokens held were issued to the previous OAuth client and are not
+   * valid for a new one, so they are dropped and the connection has to be
+   * made again. Keeping them would present later as an authorisation that
+   * mysteriously stopped working, which is worse than being told plainly.
+   */
+  const reconnect: string[] = [];
+  for (const service of RELAY_SERVICES) {
+    const prefix = service.toUpperCase() + '_';
+    if (!saved.some((key) => key.startsWith(prefix))) continue;
+
+    const sync = service === 'gmail' ? gmailSync : youtubeSync;
+    sync.reconfigure(googleConfig(service));
+    if (tokenStore.has(service)) {
+      tokenStore.clear(service);
+      reconnect.push(serviceLabel(service));
+    }
+  }
 
   res.json({
     saved,
-    // Named individually rather than as a flag, so the screen can say which.
-    needsRestart,
+    // Nothing needs a restart any more. What may need doing is connecting a
+    // Google account again, and only when one was already connected.
+    reconnect,
     settings: settings.state(),
   });
 });

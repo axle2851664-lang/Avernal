@@ -54,7 +54,23 @@ http://localhost:3000/auth/youtube/callback
 Scheme, host, port and path all have to match what Helix sends, character for
 character. A mismatch is `redirect_uri_mismatch`.
 
-> Reaching Helix from your phone? Add the LAN address too — the redirect has
+> **Reaching Helix from your phone?** Helix sends Google whichever address you
+> started the flow from, so add that one too. Over Tailscale that is your
+> `.ts.net` name:
+>
+> ```
+> https://your-machine.your-tailnet.ts.net/auth/gmail/callback
+> https://your-machine.your-tailnet.ts.net/auth/youtube/callback
+> ```
+>
+> `Ctrl K` → `SETTINGS` is not where this lives, but `/auth/status` prints the
+> exact callback for wherever you are reading it from — open it on the device
+> that is giving you trouble and paste what it says.
+>
+> A bare LAN address works the same way, but only over HTTP, which means no
+> microphone. See INSTALL.md.
+
+> Older note, still true: add the LAN address too if you use one — the redirect has
 > to match the address you opened Helix on:
 > `http://192.168.1.50:3000/auth/gmail/callback`.
 
@@ -71,6 +87,8 @@ In `.env` beside `package.json`:
 ```
 GMAIL_CLIENT_ID=...apps.googleusercontent.com
 GMAIL_CLIENT_SECRET=...
+# Optional. Leave it out and Helix uses whichever address you opened it on,
+# which is what lets one OAuth client serve both localhost and your tailnet.
 GMAIL_REDIRECT_URL=http://localhost:3000/auth/gmail/callback
 
 YOUTUBE_CLIENT_ID=...apps.googleusercontent.com
@@ -106,7 +124,8 @@ the code.
 | what you see | what to change |
 | --- | --- |
 | `access_denied` | You are not on the test-user list. Consent screen → Audience → Test users. |
-| `redirect_uri_mismatch` | The URI registered is not the one Helix sent. They must match exactly, including port. |
+| `redirect_uri_mismatch` | The URI registered is not the one Helix sent. They must match exactly, including port and scheme. `/auth/status` prints the one Helix will send from where you are. |
+| `invalid_client` | Google does not recognise the id and secret. Usually they are from different OAuth clients, or one has a stray space. |
 | `invalid_client` | The id and secret are not from the same client, or one has a stray space. |
 | `invalid_scope` | The API is not enabled on the project. |
 | `org_internal` | The consent screen is Internal. Set it to External. |

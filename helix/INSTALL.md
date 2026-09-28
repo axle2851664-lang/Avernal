@@ -91,6 +91,21 @@ things worth doing:
 
 ---
 
+## Connecting Gmail or YouTube from the tailnet
+
+Helix sends Google whichever address you started from, so one OAuth client
+serves both localhost and your phone — but Google only accepts a redirect it
+has been told about. Register both:
+
+```
+http://localhost:3000/auth/gmail/callback
+https://your-machine.your-tailnet.ts.net/auth/gmail/callback
+```
+
+Open `/auth/status` on the device you are actually using and it prints the
+exact callback Helix will send from there. Paste that into the Google console
+and the mismatch goes away. Full walkthrough in GOOGLE_SETUP.md.
+
 ## What you get
 
 | | |
