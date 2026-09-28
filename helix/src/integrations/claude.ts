@@ -26,6 +26,36 @@ import Anthropic, {
 const MODEL = 'claude-opus-5';
 const MAX_TOKENS = 400;
 
+/**
+ * Room for a turn that searches.
+ *
+ * Server tool calls and their results are output tokens too, so the ceiling
+ * that fits a one-sentence reply does not fit one that had to look something
+ * up first — it truncates mid-search and the answer never arrives.
+ */
+const MAX_TOKENS_SEARCHING = 2000;
+
+/**
+ * The web search tool, as the API names it today.
+ *
+ * Server-side: Anthropic runs the search and the results come back in the
+ * same response. Nothing is executed here, and Helix never gets a browser.
+ *
+ * `max_uses` is the real safety rail. Without it a single question can turn
+ * into an unbounded number of billed searches, and three is enough to answer
+ * something and check it.
+ */
+const WEB_SEARCH_TOOL = { type: 'web_search_20260209', name: 'web_search', max_uses: 3 } as const;
+
+/**
+ * How many times a paused turn may be resumed.
+ *
+ * The server runs its own sampling loop for a server tool and stops at ten
+ * iterations with `pause_turn`, expecting to be handed the turn back. Left
+ * unbounded that is a loop with someone else's stopping condition in it.
+ */
+const MAX_RESUMES = 3;
+
 /** Long enough for a real question, short enough that nobody pastes a book in. */
 export const MAX_QUESTION_LENGTH = 1000;
 
@@ -49,6 +79,16 @@ export interface Answer {
   readonly text: string;
   /** Whether the reply was grounded in notes or was conversation. */
   readonly grounded: boolean;
+  /** How many web searches were actually run. Zero when none were. */
+  readonly searches: number;
+  /** The pages he looked at, in the order he found them. */
+  readonly sources: readonly WebSource[];
+}
+
+/** One page a search turned up. Both fields come from the service. */
+export interface WebSource {
+  readonly title: string;
+  readonly url: string;
 }
 
 /** One prior exchange, oldest first. Kept by the caller, not by this class. */
@@ -99,7 +139,12 @@ export class HelixMind {
     question: string,
     notes: string,
     systemPrompt: string,
-    options: { readonly memory?: string; readonly history?: readonly Exchange[] } = {}
+    options: {
+      readonly memory?: string;
+      readonly history?: readonly Exchange[];
+      /** Hand him the web for this turn. He still decides whether to use it. */
+      readonly web?: boolean;
+    } = {}
   ): Promise<Answer> {
     if (this.#client === null) {
       throw new MindError('Set ANTHROPIC_API_KEY to let Helix answer.', 503);
@@ -134,17 +179,42 @@ export class HelixMind {
       content: preamble.length === 0 ? asked : preamble.join('\n\n') + '\n\n' + asked,
     });
 
+    const searching = options.web === true;
+
     let response: Anthropic.Message;
     try {
       response = await this.#client.messages.create({
         model: MODEL,
-        max_tokens: MAX_TOKENS,
+        max_tokens: searching ? MAX_TOKENS_SEARCHING : MAX_TOKENS,
         system: systemPrompt,
         // A one-line reply needs no deep reasoning, and paying for it would
         // add latency to something meant to feel like conversation.
         output_config: { effort: 'low' },
+        ...(searching ? { tools: [WEB_SEARCH_TOOL] } : {}),
         messages,
       });
+
+      /*
+       * Resume a paused turn.
+       *
+       * The server stops its own tool loop after ten iterations and returns
+       * `pause_turn`, expecting the turn back to carry on. The assistant
+       * content is appended and the request repeated with nothing added — the
+       * trailing tool-use block is what tells the server to resume, and a
+       * "carry on" message of our own would only get in the way.
+       */
+      for (let resumed = 0; response.stop_reason === 'pause_turn'; resumed += 1) {
+        if (resumed >= MAX_RESUMES) break;
+        messages.push({ role: 'assistant', content: response.content });
+        response = await this.#client.messages.create({
+          model: MODEL,
+          max_tokens: searching ? MAX_TOKENS_SEARCHING : MAX_TOKENS,
+          system: systemPrompt,
+          output_config: { effort: 'low' },
+          ...(searching ? { tools: [WEB_SEARCH_TOOL] } : {}),
+          messages,
+        });
+      }
     } catch (error) {
       throw HelixMind.#translate(error);
     }
@@ -161,7 +231,55 @@ export class HelixMind {
 
     if (text === '') throw new MindError('Helix had nothing to say.', 502);
 
-    return { text, grounded: notes !== '' };
+    const found = HelixMind.#searchResults(response);
+
+    return {
+      text,
+      // Grounded means "he had something to work from", and a page he read is
+      // as much a source as a note. Saying otherwise would have the screen
+      // print "not from your notes" under an answer that is from the web.
+      grounded: notes !== '' || found.sources.length > 0,
+      searches: found.searches,
+      sources: found.sources,
+    };
+  }
+
+  /**
+   * What the search actually returned.
+   *
+   * A search that failed comes back as HTTP 200 with an error object where
+   * the result list would be — not as a thrown error — so the shape has to be
+   * checked rather than assumed. An error costs the sources and nothing else:
+   * the model has already written its reply around whatever it did or did not
+   * get, and failing the whole request here would throw that away.
+   */
+  static #searchResults(response: Anthropic.Message): {
+    searches: number;
+    sources: WebSource[];
+  } {
+    const sources: WebSource[] = [];
+    const seen = new Set<string>();
+    let searches = 0;
+
+    for (const block of response.content) {
+      if (block.type === 'server_tool_use' && block.name === 'web_search') searches += 1;
+      if (block.type !== 'web_search_tool_result') continue;
+
+      const content: unknown = (block as { content?: unknown }).content;
+      if (!Array.isArray(content)) continue; // The error-object shape.
+
+      for (const entry of content as readonly Record<string, unknown>[]) {
+        const url = typeof entry.url === 'string' ? entry.url : '';
+        if (url === '' || seen.has(url)) continue;
+        seen.add(url);
+        sources.push({
+          title: typeof entry.title === 'string' && entry.title !== '' ? entry.title : url,
+          url,
+        });
+      }
+    }
+
+    return { searches, sources };
   }
 
   /**

@@ -462,8 +462,9 @@ a:hover { color: var(--hx-text); border-color: var(--hx-line-active); }
   animation: hx-pulse 2s var(--hx-ease) infinite;
 }
 
-/* A system indicator: a dot and a word. State lives in a data attribute so the
-   script sets one thing and the stylesheet decides how it reads. */
+/* The system indicator: one dot. State lives in a data attribute so the
+   script sets one thing and the stylesheet decides how it reads, and the
+   detail lives in its title, one hover away. */
 .hx-signal {
   display: inline-flex;
   align-items: center;
@@ -501,6 +502,68 @@ a:hover { color: var(--hx-text); border-color: var(--hx-line-active); }
 @keyframes hx-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.35; }
+}
+
+/* ------------------------------------------------------------------- keys */
+
+/* A field, what it is for, and a way to empty it. */
+.hx-key + .hx-key { margin-top: var(--hx-gap-lg); }
+
+.hx-key__group {
+  margin: var(--hx-gap-xl) 0 var(--hx-gap);
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--hx-line);
+  color: var(--hx-text-dim);
+  font-family: var(--hx-font-mono);
+  font-size: var(--hx-label-size);
+  letter-spacing: var(--hx-label-tracking);
+  text-transform: uppercase;
+}
+
+.hx-key__group:first-child { margin-top: 0; }
+
+.hx-key__line {
+  display: flex;
+  gap: 0.75rem;
+  align-items: stretch;
+}
+
+.hx-key__line .hx-field { flex: 1; }
+
+/* Deliberately quiet, and deliberately not destructive on its own: it marks
+   the field, and nothing happens until Save. */
+.hx-key__clear {
+  flex: none;
+  padding: 0 0.9rem;
+  background: none;
+  border: 1px solid var(--hx-line);
+  color: var(--hx-text-faint);
+  cursor: pointer;
+  font-family: var(--hx-font-mono);
+  font-size: var(--hx-label-size);
+  letter-spacing: var(--hx-label-tracking);
+  text-transform: uppercase;
+}
+
+.hx-key__clear:hover { color: var(--hx-text); border-color: var(--hx-line-strong); }
+
+.hx-key[data-clear='true'] .hx-key__clear {
+  color: var(--hx-alert);
+  border-color: var(--hx-alert);
+}
+
+.hx-key[data-clear='true'] .hx-field { opacity: 0.4; }
+
+/* Where the file is. Wants room under it: the first group heading has no top
+   margin, so without this it sits flush against this line. */
+#keys-note { margin: 0 0 var(--hx-gap-lg); }
+
+/* The line under a field saying what it buys. The dimmest type in the sheet. */
+.hx-note {
+  margin: 0.5rem 0 0;
+  color: var(--hx-text-faint);
+  font-size: 0.8rem;
+  line-height: 1.5;
 }
 
 /* ------------------------------------------------------------- centre mark */

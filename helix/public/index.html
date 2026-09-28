@@ -43,7 +43,9 @@
     <!-- Status on one side, the two ways in on the other. That is the whole
          permanent interface. -->
     <div class="hx-hud">
-      <span class="hx-signal" id="system" data-state="unknown">Connecting</span>
+      <!-- A dot, and what it means on hover. The word beside it said
+           "ONLINE", which a lit dot already says. -->
+      <span class="hx-signal" id="system" data-state="unknown" title="Connecting"></span>
 
       <div class="hx-controls">
         <button type="button" class="hx-control" id="mic" aria-pressed="false">
@@ -54,9 +56,10 @@
           <span class="hx-control__text">Voice</span>
         </button>
 
-        <button type="button" class="hx-control" id="cmd-open">
+        <!-- The key cap is the label. "Command" beside it was the same word
+             twice. -->
+        <button type="button" class="hx-control" id="cmd-open" aria-label="Open the command console">
           <span class="hx-control__key">Ctrl K</span>
-          <span class="hx-control__text">Command</span>
         </button>
       </div>
     </div>
@@ -79,6 +82,19 @@
         <button class="hx-btn" id="save">Save to vault</button>
       </div>
       <div class="hx-status" id="note-status"></div>
+    </section>
+
+    <!-- Keys. In the sheet with everything else, so the main screen gains
+         nothing permanent for it. Built from /settings at open time rather
+         than written out here: the server owns what is settable, and two
+         lists would drift. -->
+    <section class="hx-panel" id="keys-panel" hidden>
+      <p class="hx-note" id="keys-note">Reading settings…</p>
+      <form id="keys-form" autocomplete="off"></form>
+      <div class="hx-row">
+        <button class="hx-btn" id="keys-save" type="button">Save keys</button>
+      </div>
+      <div class="hx-status" id="keys-status"></div>
     </section>
 
     <section class="hx-panel" id="gen-panel" hidden>

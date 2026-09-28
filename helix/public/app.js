@@ -174,21 +174,18 @@
   /* ------------------------------------------------------------ the system */
 
   /**
-   * The one status indicator: a dot, a word, and the detail on hover.
-   *
-   * The word does not repeat the name — the wordmark is directly above it —
-   * it says whether the server is answering, which is the only thing a single
-   * dot can honestly carry.
+   * The one status indicator: a dot, and the detail on hover.
    *
    * Named for what it reports rather than called setStatus, because the
    * generate panel already has a setStatus and an element called status. Two
    * of either is one too many: the id collision had the generate panel's
    * messages landing in this dot.
    */
-  function setSystem(state, label, detail) {
+  function setSystem(state, detail) {
     var node = el('system');
     node.dataset.state = state;
-    node.textContent = label;
+    // The word beside the dot said "ONLINE", which a lit dot already says.
+    // What the dot cannot say goes in the title, one hover away.
     node.title = detail;
   }
 
@@ -203,14 +200,14 @@
         // readout nobody was reading; the breakdown still exists, in
         // ACTIVITY, where you go when you actually want it. The title is
         // there so it is one hover away rather than one command away.
-        setSystem('on', 'Online', Object.keys(services)
+        setSystem('on', Object.keys(services)
           .map(function (name) { return name + ': ' + services[name]; })
           .join('\n'));
       })
       .catch(function () {
         // Unknown is its own state: an unreachable server is not the same as
         // a subsystem reporting that it is disconnected.
-        setSystem('fault', 'Offline', 'The server did not answer.');
+        setSystem('fault', 'The server did not answer.');
       });
   }
 
@@ -237,10 +234,16 @@
    * one click, which the console already does by name. Shut, the screen is the
    * sphere and nothing else.
    */
-  var PANELS = { 'note-panel': 'Note', 'gen-panel': 'Generate' };
+  var PANELS = { 'note-panel': 'Note', 'gen-panel': 'Generate', 'keys-panel': 'Keys' };
 
   function showPanel(panelId) {
     if (!Object.prototype.hasOwnProperty.call(PANELS, panelId)) return false;
+    // Read once, on the first open. The screen is not worth a request on
+    // every page load when most opens of the sheet are for a note.
+    if (panelId === 'keys-panel' && !keysLoaded) {
+      keysStatus('');
+      loadKeys();
+    }
     el('sheet-title').textContent = PANELS[panelId];
     Object.keys(PANELS).forEach(function (id) {
       el(id).hidden = id !== panelId;
@@ -268,6 +271,173 @@
     if (!el('cmd').hidden) return;
     if (recording) { stopListening(); event.preventDefault(); return; }
     if (hideSheet() || clearReply()) event.preventDefault();
+  });
+
+  /* ------------------------------------------------------------------ keys */
+
+  /*
+   * The settings screen.
+   *
+   * Built from /settings rather than written into the page, because the
+   * server owns what is settable and two lists would drift. What comes back
+   * is never a value — only whether one is set and its last four characters —
+   * so a field left blank means "leave this alone", not "clear this".
+   *
+   * Clearing is the empty-string case, which needs a deliberate gesture: the
+   * Clear button beside a field that has one. A blank box could not mean both
+   * things.
+   */
+  var GROUPS = {
+    mind: 'Thinking',
+    voice: 'Voice',
+    google: 'Google',
+  };
+
+  var keysLoaded = false;
+
+  function keysStatus(message, bad) {
+    var out = el('keys-status');
+    out.textContent = message;
+    out.classList.toggle('error', Boolean(bad));
+  }
+
+  function fieldFor(setting) {
+    var row = document.createElement('div');
+    row.className = 'hx-key';
+
+    var label = document.createElement('label');
+    label.className = 'hx-label';
+    label.setAttribute('for', 'key-' + setting.key);
+    label.textContent = setting.label;
+    row.appendChild(label);
+
+    var line = document.createElement('div');
+    line.className = 'hx-key__line';
+
+    var input = document.createElement('input');
+    input.className = 'hx-field';
+    input.id = 'key-' + setting.key;
+    input.name = setting.key;
+    // A secret is typed, not read back: type=password keeps it off the
+    // screen and out of a screenshot, and autocomplete off keeps the browser
+    // from offering to remember a key it has no business storing.
+    input.type = setting.secret ? 'password' : 'text';
+    input.autocomplete = 'off';
+    input.spellcheck = false;
+    input.placeholder = setting.set ? setting.hint : 'not set';
+    line.appendChild(input);
+
+    if (setting.set) {
+      var clear = document.createElement('button');
+      clear.type = 'button';
+      clear.className = 'hx-key__clear';
+      clear.textContent = 'Clear';
+      clear.addEventListener('click', function () {
+        // Marked rather than sent: nothing leaves until Save, so a misclick
+        // is undone by closing the sheet.
+        var wanted = row.dataset.clear !== 'true';
+        row.dataset.clear = wanted ? 'true' : 'false';
+        clear.textContent = wanted ? 'Will clear' : 'Clear';
+        input.disabled = wanted;
+      });
+      line.appendChild(clear);
+    }
+
+    row.appendChild(line);
+
+    var note = document.createElement('p');
+    note.className = 'hx-note';
+    note.textContent = setting.note;
+    row.appendChild(note);
+
+    return row;
+  }
+
+  function loadKeys() {
+    // The status line is not touched here. loadKeys() runs after a save, and
+    // clearing it was wiping the "3 settings saved" the save had just written.
+    busy(1);
+    return fetch('/settings')
+      .then(function (res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+      })
+      .then(function (body) {
+        var form = el('keys-form');
+        form.innerHTML = '';
+
+        var byGroup = {};
+        (body.settings || []).forEach(function (setting) {
+          (byGroup[setting.group] = byGroup[setting.group] || []).push(setting);
+        });
+
+        Object.keys(GROUPS).forEach(function (group) {
+          if (!byGroup[group]) return;
+          var heading = document.createElement('p');
+          heading.className = 'hx-key__group';
+          heading.textContent = GROUPS[group];
+          form.appendChild(heading);
+          byGroup[group].forEach(function (setting) {
+            form.appendChild(fieldFor(setting));
+          });
+        });
+
+        el('keys-note').textContent = 'Saved to ' + body.path + ', readable only by you.';
+        keysLoaded = true;
+      })
+      .catch(function (err) {
+        el('keys-note').textContent = 'Could not read the settings: ' + err.message;
+      })
+      .then(function () { busy(-1); });
+  }
+
+  el('keys-save').addEventListener('click', function () {
+    var updates = {};
+    var rows = el('keys-form').querySelectorAll('.hx-key');
+    for (var i = 0; i < rows.length; i += 1) {
+      var input = rows[i].querySelector('.hx-field');
+      if (rows[i].dataset.clear === 'true') updates[input.name] = '';
+      else if (input.value.trim() !== '') updates[input.name] = input.value.trim();
+    }
+
+    if (Object.keys(updates).length === 0) {
+      keysStatus('Nothing to save. Type a key first.', true);
+      return;
+    }
+
+    el('keys-save').disabled = true;
+    busy(1);
+    keysStatus('Saving…');
+    fetch('/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    })
+      .then(function (res) {
+        return res.json().then(function (body) {
+          if (!res.ok) throw new Error(body.error || 'Could not save.');
+          return body;
+        });
+      })
+      .then(function (body) {
+        var saved = (body.saved || []).length;
+        var message = saved === 1 ? '1 setting saved.' : saved + ' settings saved.';
+        // Said explicitly rather than implied: a key that is saved but not
+        // yet in use looks exactly like one that did not save.
+        if ((body.needsRestart || []).length > 0) {
+          message += ' Restart Helix for ' + body.needsRestart.join(', ') + '.';
+        }
+        keysStatus(message);
+        // Rebuilt from what came back, so the fields show the new hints and
+        // nothing that was just typed stays on screen.
+        loadKeys();
+        loadHealth();
+      })
+      .catch(function (err) { keysStatus(err.message, true); })
+      .then(function () {
+        el('keys-save').disabled = false;
+        busy(-1);
+      });
   });
 
   /* ----------------------------------------------------------------- notes */
@@ -448,7 +618,33 @@
             .filter(function (label) { return label !== null; })
             .join(', ')
       );
-    } else if (body.grounded === false && body.answer) {
+    }
+
+    // The web, said plainly. Which words turned it on, and whether it was
+    // actually used — a search offered and declined is not a search, and the
+    // two must not look the same.
+    if (body.web) {
+      if (body.web.searches > 0) {
+        var hosts = (body.web.sources || [])
+          .map(function (source) {
+            try { return new URL(source.url).hostname.replace(/^www\./, ''); }
+            catch (err) { return null; }
+          })
+          .filter(function (host) { return host !== null; });
+        parts.push(
+          'Searched the web (' + body.web.trigger + ')' +
+            (hosts.length > 0 ? ': ' + hosts.slice(0, 3).join(', ') : '')
+        );
+      } else {
+        parts.push('Web offered (' + body.web.trigger + '), not used');
+      }
+    }
+
+    if (
+      (!body.sources || body.sources.length === 0) &&
+      body.grounded === false &&
+      body.answer
+    ) {
       parts.push('Not from your notes');
     }
     if (body.voiceError) parts.push('Not spoken: ' + body.voiceError);
@@ -488,9 +684,15 @@
           return speak(body.answer).then(
             function () { return body; },
             function (err) {
-              // Said but not spoken is still said.
+              // Said but not spoken is still said — but it has to say so.
+              // The answer is already on screen by this point, so the note
+              // is rewritten rather than returned: putting voiceError on a
+              // copy of the body and returning it told nobody, because
+              // nothing renders the body again.
+              var withError = Object.assign({}, body, { voiceError: err.message });
+              showReply(body.answer, provenance(withError));
               setState('idle');
-              return Object.assign({}, body, { voiceError: err.message });
+              return withError;
             }
           );
         }
@@ -776,6 +978,14 @@
     focusPromptField: function () {
       showPanel('gen-panel');
       el('prompt').focus();
+    },
+    /** Open the settings screen and put the cursor in the first empty field. */
+    openSettings: function () {
+      showPanel('keys-panel');
+      window.setTimeout(function () {
+        var empty = el('keys-form').querySelector('.hx-field:placeholder-shown');
+        if (empty !== null) empty.focus();
+      }, 120);
     },
     /** Wraps a request in the same activity indicator the buttons use. */
     request: function (path) {

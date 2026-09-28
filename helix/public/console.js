@@ -109,6 +109,38 @@
       },
     },
     {
+      name: 'SETTINGS',
+      hint: 'Put your API keys in',
+      run: function () {
+        if (!api().openSettings) return fail('The page is not ready yet.'), 'stay';
+        api().openSettings();
+        return 'close';
+      },
+    },
+    {
+      name: 'WEB',
+      arg: '<question>',
+      hint: 'Ask Helix something and let him search the web for it',
+      network: true,
+      run: function (arg) {
+        if (!api().ask) return fail('The page is not ready yet.'), 'stay';
+        if (arg === '') {
+          report(['Type WEB followed by a question.']);
+          return 'stay';
+        }
+        /*
+         * Prefixed rather than flagged.
+         *
+         * The web is turned on by the words in the question — the same rule
+         * whether they are typed here or spoken — so this command puts the
+         * words in rather than reaching past them with a flag the spoken
+         * path would not have. One way in, one rule.
+         */
+        api().ask('Search the web: ' + arg).catch(function () {});
+        return 'close';
+      },
+    },
+    {
       name: 'ASK',
       arg: '<question>',
       hint: 'Ask Helix something — he answers from your vault, and says it',
@@ -390,9 +422,12 @@
     var searchTerm = null;
     if (upper.indexOf('SEARCH') === 0) searchTerm = query.slice(6).trim();
 
-    // SPEAK and ASK carry their text as an argument, so the row has to be
-    // built with that argument rather than matched as a bare command name.
-    var withArgument = [['SPEAK', 5], ['ASK', 3], ['HISTORY', 7]];
+    // SPEAK, ASK, HISTORY and WEB carry their text as an argument, so the row
+    // has to be built with that argument rather than matched as a bare
+    // command name. A command left off this list still appears in the list,
+    // but typing it with an argument falls through to the ASK fallback and
+    // the argument is never separated from the name.
+    var withArgument = [['SPEAK', 5], ['ASK', 3], ['HISTORY', 7], ['WEB', 3]];
     for (var w = 0; w < withArgument.length; w += 1) {
       var name = withArgument[w][0];
       if (upper.indexOf(name) !== 0) continue;

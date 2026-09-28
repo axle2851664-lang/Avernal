@@ -7,6 +7,8 @@ import { GmailSync, type Email } from '../integrations/gmail.js';
 import { YouTubeSync, type Video } from '../integrations/youtube.js';
 import { generateImage, generateVideo } from '../integrations/generators.js';
 import { ElevenLabsVoice, VoiceError, MAX_AUDIO_BYTES } from '../integrations/elevenlabs.js';
+import { SettingsError, SettingsFile } from './settings.js';
+import { WEB_ADDENDUM, webTriggerFor } from '../core/brain/web.js';
 import { HelixMind, MindError, type Exchange } from '../integrations/claude.js';
 import { SYSTEM_PROMPT, renderNotesContext } from '../core/galaxy/persona.js';
 import { groundedNotes } from '../core/galaxy/retrieval.js';
@@ -604,7 +606,10 @@ app.get('/galaxy', async (_req: Request, res: Response) => {
  *
  *   ELEVENLABS_API_KEY=... ELEVENLABS_VOICE_ID=... npm run server
  */
-const voice = ElevenLabsVoice.fromEnvironment();
+// Not const: the settings screen can replace it with one built from a key
+// that was not there when the process started. Rebuilt rather than mutated,
+// because the key is private to the instance and that is the point of it.
+let voice = ElevenLabsVoice.fromEnvironment();
 
 function sendVoiceError(res: Response, error: unknown): void {
   if (error instanceof VoiceError) {
@@ -616,6 +621,70 @@ function sendVoiceError(res: Response, error: unknown): void {
   console.error('Voice failed:', error);
   res.status(500).json({ error: 'Speech failed.' });
 }
+
+/* --------------------------------------------------------------- settings */
+
+/*
+ * Where the keys are kept.
+ *
+ * Beside the package, as a 0600 .env — the same file the setup docs tell you
+ * to write by hand, so the screen and the documentation cannot disagree about
+ * where a key lives.
+ */
+const settings = new SettingsFile(DATA_ROOT);
+
+/**
+ * What is configured. Never a value — see settings.ts for why that matters.
+ */
+app.get('/settings', (_req: Request, res: Response) => {
+  res.json({ path: settings.path, settings: settings.state() });
+});
+
+/*
+ * Save keys.
+ *
+ * The clients that read a key at construction are rebuilt here, so a key
+ * pasted in works on the next question rather than the next restart. The
+ * Google clients are not: swapping an OAuth client under tokens that were
+ * issued to the previous one is precisely the moment you want a clean start,
+ * so those are saved and reported as needing one.
+ */
+app.post('/settings', (req: Request, res: Response) => {
+  const body = req.body as Record<string, unknown>;
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+    return res.status(400).json({ error: 'Send an object of settings.' });
+  }
+
+  let saved: readonly string[];
+  try {
+    saved = settings.save(body);
+  } catch (error) {
+    if (error instanceof SettingsError) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    // Never passed through: an fs error carries the path of the key file.
+    console.error('Could not save settings:', error);
+    return res.status(500).json({ error: 'Could not save the settings.' });
+  }
+
+  if (saved.some((key) => key.startsWith('ELEVENLABS_'))) {
+    voice = ElevenLabsVoice.fromEnvironment();
+  }
+  if (saved.includes('ANTHROPIC_API_KEY')) {
+    mind = HelixMind.fromEnvironment();
+  }
+
+  const needsRestart = saved.filter(
+    (key) => key.startsWith('GMAIL_') || key.startsWith('YOUTUBE_')
+  );
+
+  res.json({
+    saved,
+    // Named individually rather than as a flag, so the screen can say which.
+    needsRestart,
+    settings: settings.state(),
+  });
+});
 
 /**
  * Whether Helix can speak and hear, and what to set if he cannot. Never the
@@ -909,7 +978,8 @@ app.post('/brain/plan', (req: Request, res: Response) => {
  * persona supplies the character, and the model supplies the sentence. None
  * of that judgement lives here — this route is the wire.
  */
-const mind = HelixMind.fromEnvironment();
+// Replaced, not mutated, when a key is saved. See `voice` above.
+let mind = HelixMind.fromEnvironment();
 
 /*
  * What has been said, kept beside the vault and the memory.
@@ -986,12 +1056,28 @@ app.post('/ask', async (req: Request, res: Response) => {
       .recent(REPLAY_DEPTH)
       .map((turn) => ({ question: turn.question, answer: turn.answer }));
 
+    /*
+     * The web, when the question asks for it.
+     *
+     * Decided from the words the user used, not by the model — see
+     * core/brain/web.ts. The addendum is appended only on the turns it is on,
+     * so the rule against using anything but the notes is not quietly relaxed
+     * on every other turn.
+     */
+    const web = webTriggerFor(question);
+
     let answer;
     try {
-      answer = await mind.answer(question, notesBlock, SYSTEM_PROMPT, {
-        memory: memoryBlock,
-        history,
-      });
+      answer = await mind.answer(
+        question,
+        notesBlock,
+        web === null ? SYSTEM_PROMPT : SYSTEM_PROMPT + '\n' + WEB_ADDENDUM,
+        {
+          memory: memoryBlock,
+          history,
+          ...(web === null ? {} : { web: true }),
+        }
+      );
     } catch (error) {
       /*
        * No answer, but something was kept.
@@ -1035,6 +1121,13 @@ app.post('/ask', async (req: Request, res: Response) => {
     res.json({
       answer: answer.text,
       grounded: answer.grounded,
+      // What turned the web on, whether it was used, and what it found. All
+      // three, because "he searched" and "he was allowed to search" are
+      // different facts and the screen should not have to guess.
+      web:
+        web === null
+          ? null
+          : { trigger: web.phrase, searches: answer.searches, sources: answer.sources },
       // Which notes were used, so a wrong answer is traceable to its source.
       sources: sources.map((source) => ({
         id: source.id,

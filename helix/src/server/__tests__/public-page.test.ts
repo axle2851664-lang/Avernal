@@ -60,7 +60,7 @@ describe('public/index.html', () => {
     // the easy thing to reintroduce, so both halves are pinned.
     expect(page).toContain('class="hx-sheet" id="sheet" hidden');
     expect(page).not.toContain('hx-tab');
-    expect(app).toContain("var PANELS = { 'note-panel': 'Note', 'gen-panel': 'Generate' };");
+    expect(app).toContain("var PANELS = { 'note-panel': 'Note', 'gen-panel': 'Generate'");
   });
 
   it('carries nothing on the wall that is not measured or a control', () => {
@@ -157,19 +157,32 @@ describe('public/helix.css', () => {
 describe('public/galaxy.js', () => {
   const galaxy = readFileSync(join(PUBLIC, 'galaxy.js'), 'utf8');
 
-  it('builds the aurora once rather than every frame', () => {
-    // The sprite is where the expensive drawing lives — wide shadows for soft
-    // edges — and it is only affordable because it happens at mount.
-    expect(galaxy).toContain('function makeAuroraSprite()');
-    expect(galaxy).toContain('var aurora = makeAuroraSprite();');
-    // Nothing in the frame loop may rebuild it.
+  it('draws no rings around the sphere', () => {
+    // The aurora curtains and the scanning-plane ellipse both read as rings.
+    // The sphere is the composition; anything drawn around it is furniture,
+    // and both of these are easy to reintroduce by habit.
+    for (const gone of ['aurora', 'AURORA', 'reticle']) {
+      expect(galaxy).not.toContain(gone);
+    }
+  });
+
+  it('keeps the sweep as an effect rather than an outline', () => {
+    // Points still brighten as the band passes over them. What went is the
+    // ellipse that drew where the band was.
+    expect(galaxy).toContain('SCAN_BAND');
+    expect(galaxy).not.toContain('one ellipse at the current latitude');
+  });
+
+  it('builds its one sprite once rather than every frame', () => {
+    // Blitting a ready-made dot is a texture copy; rasterising a gradient per
+    // point per frame is how a canvas visualisation starts to crawl.
+    expect(galaxy).toContain('function makeGlowSprite()');
     const draw = galaxy.slice(galaxy.indexOf('function draw()'));
-    expect(draw).not.toContain('makeAuroraSprite(');
+    expect(draw).not.toContain('makeGlowSprite(');
   });
 
   it('sizes the shell from the canvas, not from a ring that no longer exists', () => {
     expect(galaxy).toContain('function shellRadius()');
-    expect(galaxy).not.toContain('reticle');
   });
 
   it('keeps a ceiling on everything it draws', () => {
@@ -194,6 +207,7 @@ describe('public/galaxy.js', () => {
 describe('public/console.js', () => {
   const cmd = readFileSync(join(PUBLIC, 'console.js'), 'utf8');
   const app = readFileSync(join(PUBLIC, 'app.js'), 'utf8');
+  const page = readFileSync(join(PUBLIC, 'index.html'), 'utf8');
 
   it('only reaches endpoints the server actually serves', () => {
     // Every path the console can request, checked against the routes in
@@ -221,9 +235,31 @@ describe('public/console.js', () => {
     }
   });
 
-  it('offers nothing for a screen that does not exist', () => {
-    // There is no settings surface, so there is no SETTINGS command.
-    expect(cmd).not.toContain("name: 'SETTINGS'");
+  it('offers SETTINGS only because there is now a screen behind it', () => {
+    // This test used to assert the opposite — there was no settings surface,
+    // so a SETTINGS command would have been a command that went nowhere. The
+    // rule has not changed, only the fact: the command exists now because the
+    // panel does, and both halves are pinned here.
+    expect(cmd).toContain("name: 'SETTINGS'");
+    expect(cmd).toContain('api().openSettings()');
+    expect(app).toContain('openSettings:');
+    expect(page).toContain('id="keys-panel"');
+  });
+
+  it('separates the argument from every command that takes one', () => {
+    // A command missing from this list still shows in the list, but typing it
+    // with an argument falls through to the ASK fallback with the command
+    // name still stuck to the front of the question. WEB was missing.
+    expect(cmd).toContain(
+      "var withArgument = [['SPEAK', 5], ['ASK', 3], ['HISTORY', 7], ['WEB', 3]];"
+    );
+  });
+
+  it('reaches the web through the same words a spoken question would use', () => {
+    // WEB prefixes the question rather than setting a flag, so typing it and
+    // saying it go through one rule. A flag here would be a second way in
+    // that the microphone could not take.
+    expect(cmd).toContain("api().ask('Search the web: ' + arg)");
   });
 
   it('leaves typing in the page alone', () => {
@@ -267,6 +303,13 @@ describe('public/app.js', () => {
     // With a flag, the first of two overlapping requests to finish clears the
     // indicator while the second is still running.
     expect(app).toContain('inFlight = Math.max(0, inFlight + delta)');
+  });
+
+  it('says so on screen when it could not speak the answer', () => {
+    // The answer is already displayed by the time speaking fails, so the note
+    // has to be rewritten. Putting voiceError on a returned copy of the body
+    // told nobody — nothing renders the body a second time.
+    expect(app).toContain('showReply(body.answer, provenance(withError));');
   });
 
   it('does not report a drawing fault as an unreadable vault', () => {

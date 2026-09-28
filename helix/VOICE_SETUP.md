@@ -1,5 +1,11 @@
 # Giving Helix a voice — and something to say
 
+**The short version: start Helix, press `Ctrl K`, type `SETTINGS`, paste your
+keys in.** They are written to a `.env` beside the package that only you can
+read, and the Anthropic and ElevenLabs keys take effect immediately — no
+restart. Everything below is the same thing done by hand, and what each key
+buys.
+
 Two separate keys, and he needs both to hold a conversation:
 
 | what | variable | gives him |
@@ -34,6 +40,27 @@ Two things the browser insists on:
 `ELEVENLABS_STT_MODEL_ID` overrides the transcription model, which defaults to
 `scribe_v2`. It is separate from `ELEVENLABS_MODEL_ID`, which is the speaking
 model — the two catalogues move independently.
+
+## Searching the web
+
+Helix answers from your notes. He reaches past them only when your words say
+to, and the reply says which words did it:
+
+- **You ask outright** — "search the web for…", "look it up", "google…",
+  "check the internet".
+- **The question cannot be about your vault** — "what's the latest…", "who
+  won", "the current price of…", "what's the weather", "today".
+- **`WEB <question>`** in the console does the same thing explicitly.
+
+Turn it off in the same breath with "don't search", "without looking it up",
+"no need to search" — so "what did I write today, don't search" stays in the
+vault.
+
+The search runs on Anthropic's side through your existing `ANTHROPIC_API_KEY`;
+there is no second key and no search provider to sign up for. At most three
+searches per question. Under the answer you get which phrase turned it on and
+which sites he read, so a search you did not expect is visible rather than
+silent.
 
 ## Asking him something in writing
 
