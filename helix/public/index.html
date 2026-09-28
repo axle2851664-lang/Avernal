@@ -9,57 +9,58 @@
 </head>
 <body>
 <!--
-  One screen, one focal point.
+  One screen, one focal point, and no words on it.
 
-  Permanently on it: the sphere, the wordmark, one line saying what Helix is
-  doing, one status dot, and the two ways in — voice and the command console.
-  Nothing else. Replies appear under the wordmark and leave again once read.
+  Permanently on it: the sphere, one status dot, and two glyphs — voice and
+  the command console. Nothing is written. What Helix is doing is carried by
+  the dot and by how hard the sphere is turning; what the two controls do is
+  carried by their shapes, their titles and their aria-labels.
+
+  The one exception is a reply, which is the answer itself: it appears in the
+  middle, and leaves again once it has been read.
 
   The counts, clock, latency, uptime and per-subsystem states are all still
-  measured; ACTIVITY in the console reports them. They are off the wall, not
-  gone.
+  measured; ACTIVITY in the console reports them.
 -->
 <main class="hx-shell hx-main">
 
   <div class="hx-stage" id="stage" data-state="idle">
-    <!-- The galaxy. Decorative to a screen reader: what it encodes is also
-         written out in the state line, which is real text. -->
+    <!-- The galaxy. Decorative to a screen reader: it encodes the shape of
+         the vault, and the counts behind it are read out by ACTIVITY. -->
     <canvas id="galaxy" aria-hidden="true"></canvas>
 
     <div class="hx-core">
-      <h1>Helix</h1>
-      <!-- One line, and it says only what is true right now: what the system
-           is doing, or that it is doing nothing. -->
-      <p class="hx-core__state" id="core-state" role="status">Reading vault</p>
-      <!-- The reply. Absent until there is one, gone once it has been read.
-           The note under it carries where the answer came from and anything
-           that was kept, so the console does not have to say it again. -->
-      <div class="hx-reply" id="reply" hidden>
+      <!-- The only words on this screen, and only while there are any: what
+           Helix said, and where it came from. Everything else that used to be
+           written here — the wordmark, the state line, the labels on the two
+           controls — is carried by the dot, the sphere and the shapes now.
+           The live region is what keeps a screen reader told. -->
+      <div class="hx-reply" id="reply" role="status" aria-live="polite" hidden>
         <p class="hx-reply__text" id="reply-text"></p>
         <p class="hx-reply__note" id="reply-note" hidden></p>
       </div>
     </div>
 
     <!-- Status on one side, the two ways in on the other. That is the whole
-         permanent interface. -->
+         permanent interface, and none of it is a word. -->
     <div class="hx-hud">
-      <!-- A dot, and what it means on hover. The word beside it said
-           "ONLINE", which a lit dot already says. -->
+      <!-- The dot carries the state now: dim at rest, pulsing while he is
+           listening or thinking, lit while speaking, coloured on a fault.
+           What it cannot say is in its title, one hover away. -->
       <span class="hx-signal" id="system" data-state="unknown" title="Connecting"></span>
 
       <div class="hx-controls">
-        <button type="button" class="hx-control" id="mic" aria-pressed="false">
+        <button type="button" class="hx-control" id="mic" aria-pressed="false" aria-label="Speak to Helix" title="Speak to Helix">
           <svg class="hx-control__icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
             <rect x="6" y="2" width="4" height="8" rx="2" />
             <path d="M3.5 8a4.5 4.5 0 0 0 9 0M8 12.5V14" />
           </svg>
-          <span class="hx-control__text">Voice</span>
         </button>
 
-        <!-- The key cap is the label. "Command" beside it was the same word
-             twice. -->
-        <button type="button" class="hx-control" id="cmd-open" aria-label="Open the command console">
-          <span class="hx-control__key">Ctrl K</span>
+        <button type="button" class="hx-control" id="cmd-open" aria-label="Open the command console (Ctrl K)" title="Command console — Ctrl K">
+          <svg class="hx-control__icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+            <path d="M2.5 4L6 8l-3.5 4M8 12h5.5" />
+          </svg>
         </button>
       </div>
     </div>

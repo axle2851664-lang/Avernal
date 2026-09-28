@@ -438,8 +438,8 @@ a:hover { color: var(--hx-text); border-color: var(--hx-line-active); }
 .hx-control:disabled { cursor: default; opacity: 0.45; }
 
 .hx-control__icon {
-  width: 13px;
-  height: 13px;
+  width: 15px;
+  height: 15px;
   fill: none;
   stroke: currentColor;
   stroke-width: 1.2;
@@ -457,6 +457,14 @@ a:hover { color: var(--hx-text); border-color: var(--hx-line-active); }
    uses — the one place on the screen that says "he is listening" without a
    word, so it has to be unmistakable and still quiet. */
 #mic[aria-pressed='true'] { color: var(--hx-text); }
+
+/* Nothing is written beside these now, so the hit area has to come from
+   padding rather than from a word. 44px keeps them tappable. */
+.hx-control {
+  min-width: 44px;
+  min-height: 44px;
+  justify-content: center;
+}
 
 #mic[aria-pressed='true'] .hx-control__icon {
   animation: hx-pulse 2s var(--hx-ease) infinite;
@@ -498,6 +506,46 @@ a:hover { color: var(--hx-text); border-color: var(--hx-line-active); }
 
 .hx-signal[data-state='fault'] { color: var(--hx-alert); }
 .hx-signal[data-state='fault']::before { background: var(--hx-alert); }
+
+/*
+ * What Helix is doing, on the same dot.
+ *
+ * This used to be a line of type under the wordmark reading "Listening" or
+ * "Thinking". With the words gone the dot has to carry it, so the stage's
+ * state drives it: a quick pulse while he is listening, a quicker one while
+ * he is thinking, and steady and bright while he is speaking. The rates are
+ * far enough apart to tell by eye without counting.
+ *
+ * Written against the stage rather than the dot because the state belongs to
+ * the screen, not to the indicator — the sphere reads the same attribute.
+ */
+.hx-stage[data-state='listening'] .hx-signal::before,
+.hx-stage[data-state='thinking'] .hx-signal::before {
+  background: var(--hx-text);
+  box-shadow: 0 0 10px rgb(255 255 255 / 80%);
+}
+
+.hx-stage[data-state='listening'] .hx-signal::before {
+  animation: hx-pulse 1.1s var(--hx-ease) infinite;
+}
+
+.hx-stage[data-state='thinking'] .hx-signal::before {
+  animation: hx-pulse 0.55s var(--hx-ease) infinite;
+}
+
+.hx-stage[data-state='speaking'] .hx-signal::before {
+  background: #fff;
+  box-shadow: 0 0 14px rgb(255 255 255 / 95%);
+  animation: none;
+}
+
+/* A vault that would not open. The only colour on the screen, and the reply
+   says what happened in words — a coloured dot is enough to notice something
+   is wrong and not enough to know what. */
+.hx-stage[data-fault='true'] .hx-signal::before {
+  background: var(--hx-alert);
+  box-shadow: 0 0 10px var(--hx-alert);
+}
 
 @keyframes hx-pulse {
   0%, 100% { opacity: 1; }
@@ -566,9 +614,11 @@ a:hover { color: var(--hx-text); border-color: var(--hx-line-active); }
   line-height: 1.5;
 }
 
-/* ------------------------------------------------------------- centre mark */
+/* ------------------------------------------------------------ the centre */
 
-/* The wordmark sits at the centre of the shell, under the points. */
+/* Holds the reply, and nothing else. The wordmark and the state line that
+   used to live here are gone; what they said is on the dot at the foot and in
+   how hard the sphere is turning. */
 .hx-core {
   position: absolute;
   top: 50%;
@@ -580,45 +630,6 @@ a:hover { color: var(--hx-text); border-color: var(--hx-line-active); }
      pointer and the sphere. Only the reply itself takes the pointer back. */
   pointer-events: none;
 }
-
-.hx-core h1 {
-  margin: 0;
-  font-size: clamp(1.4rem, 4vw, 2.4rem);
-  font-weight: 300;
-  letter-spacing: 0.5em;
-  /* The tracking adds a trailing gap; pulling it back re-centres the word. */
-  text-indent: 0.5em;
-  text-transform: uppercase;
-  /* White bloom for the glow, then a tight dark halo underneath. Over a
-     well-linked vault the shell behind this is a dense field of points, and
-     without the dark pass the wordmark dissolves into it. */
-  text-shadow: 0 0 40px rgb(255 255 255 / 30%), 0 0 12px rgb(0 0 0 / 85%),
-    0 0 4px rgb(0 0 0 / 90%);
-}
-
-.hx-core__state {
-  margin: 0.6rem 0 0;
-  /* Crossfades between states rather than swapping. Three words changing in
-     place is the whole animation budget this line gets. */
-  animation: hx-state-in 500ms var(--hx-ease);
-  /* A step brighter than the corner captions, with the same dark halo: this
-     one sits directly over the busiest part of the visualisation. */
-  color: var(--hx-text-dim);
-  text-shadow: 0 0 10px rgb(0 0 0 / 90%), 0 0 3px rgb(0 0 0 / 90%);
-  font-family: var(--hx-font-mono);
-  font-size: var(--hx-label-size);
-  letter-spacing: var(--hx-label-tracking);
-  text-transform: uppercase;
-}
-
-@keyframes hx-state-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-/* The one place on the main screen that is allowed colour, and only to say
-   the vault could not be read. */
-.hx-core__state.is-fault { color: var(--hx-alert); }
 
 /*
  * What he said.
@@ -661,8 +672,6 @@ a:hover { color: var(--hx-text); border-color: var(--hx-line-active); }
 }
 
 .hx-reply__note[hidden] { display: none; }
-
-.hx-core__state[hidden] { display: none; }
 
 @keyframes hx-reply-in {
   from { opacity: 0; translate: 0 6px; }
@@ -750,23 +759,25 @@ a:hover { color: var(--hx-text); border-color: var(--hx-line-active); }
     gap: 0.9rem;
   }
 
-  .hx-core h1 { letter-spacing: 0.32em; text-indent: 0.32em; }
   .hx-reply { max-width: none; }
   .hx-reply__text { font-size: 0.95rem; }
 }
 
 /* ==================================================================== HUD ==
  *
- * The information layer, and there is very little of it. Three tiers:
+ * The information layer, and there is almost nothing of it. Two tiers, and
+ * only one of them is made of words:
  *
- *   reply   .hx-reply         what he said, until it has been read
- *   state   .hx-core__state   what he is doing, or the resting line
- *   system  .hx-signal        one dot: answering, not answering, unreachable
+ *   reply   .hx-reply    what he said, until it has been read
+ *   state   .hx-signal   one dot: idle, listening, thinking, speaking, fault
+ *
+ * The dot is driven off the stage's data-state, so the state lives in one
+ * place and the sphere reads the same attribute.
  *
  * Anything that cannot be measured does not get a place on the screen, and
- * most of what can be measured does not either — it is one ACTIVITY away.
- * Two of the three tiers are transient by design: the screen at rest is the
- * sphere, the wordmark and one line.
+ * most of what can be measured does not either — it is one ACTIVITY away. At
+ * rest the screen is the sphere, a dot and two glyphs; a reply is the only
+ * thing that ever writes on it.
  */
 
 /* --------------------------------------------------------- activity line */

@@ -31,12 +31,10 @@ describe('public/index.html', () => {
       'sheet',
       'sheet-title',
       'sheet-close',
-      // The stage, the one line of state on it, and the reply. Both are
-      // written from script, so a dropped id means the screen silently stops
-      // saying anything.
+      // The stage and the reply. The reply is written from script, so a
+      // dropped id means the screen silently stops saying anything.
       'galaxy',
       'stage',
-      'core-state',
       'reply',
       // One status dot, and the two ways in.
       'system',
@@ -61,6 +59,28 @@ describe('public/index.html', () => {
     expect(page).toContain('class="hx-sheet" id="sheet" hidden');
     expect(page).not.toContain('hx-tab');
     expect(app).toContain("var PANELS = { 'note-panel': 'Note', 'gen-panel': 'Generate'");
+  });
+
+  it('writes nothing on the main screen but a reply', () => {
+    // The wordmark, the state line and the labels beside both controls are
+    // gone. Everything left inside the stage is a canvas, a glyph, a dot, or
+    // the reply — so any bare text here is a regression.
+    const stage = page.slice(
+      page.indexOf('<div class="hx-stage"'),
+      page.indexOf('<!-- The controls.')
+    );
+    const visible = stage
+      .replace(/<!--[\s\S]*?-->/g, '')
+      .replace(/<svg[\s\S]*?<\/svg>/g, '')
+      .replace(/<[^>]+>/g, '')
+      .replace(/\s+/g, '');
+    expect(visible).toBe('');
+
+    // And the two controls still say what they are, to a screen reader and
+    // on hover — wordless is not the same as unlabelled.
+    expect(stage).toMatch(/id="mic"[^>]*aria-label=/);
+    expect(stage).toMatch(/id="cmd-open"[^>]*aria-label=/);
+    expect(stage).toContain('title="Command console — Ctrl K"');
   });
 
   it('carries nothing on the wall that is not measured or a control', () => {
@@ -139,10 +159,14 @@ describe('public/helix.css', () => {
     expect(css).not.toContain('.hx-reticle');
   });
 
-  it('keeps the two remaining HUD tiers visually distinct', () => {
-    // State and subsystem are all that is left on the screen, and they have to
-    // differ in weight or the hierarchy is only in the markup.
-    expect(css).toContain('.hx-core__state {');
+  it('carries the state on the dot, since there are no words left to carry it', () => {
+    // The line that read "Listening" / "Thinking" is gone. Every state it
+    // used to name has to be visible on the dot instead, or the screen says
+    // nothing at all about what Helix is doing.
+    for (const state of ['listening', 'thinking', 'speaking']) {
+      expect(css, state).toContain(".hx-stage[data-state='" + state + "'] .hx-signal::before");
+    }
+    expect(css).toContain(".hx-stage[data-fault='true'] .hx-signal::before");
     expect(css).toContain('.hx-signal {');
     expect(css).toContain('.hx-reply {');
   });

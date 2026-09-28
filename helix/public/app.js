@@ -46,29 +46,32 @@
   /* --------------------------------------------------------- what he is doing */
 
   /*
-   * One line, one state.
+   * One state at a time, and not a word of it.
    *
-   * Idle is the resting line — what the vault read last said, or that it could
-   * not be read. Every other state is transient and says only itself: a screen
-   * that shows "listening", "thinking" and "ready" at the same time is telling
-   * you about its own markup rather than about Helix.
+   * There used to be a line under the wordmark reading "Listening",
+   * "Thinking", "System ready". Both it and the wordmark are gone, so the
+   * state is carried by two things that were already on the screen: the dot
+   * at the foot, which the stylesheet reads off `data-state`, and the sphere,
+   * which turns harder while he is working.
+   *
+   * `resting` is kept even though nothing prints it — ACTIVITY reports it,
+   * and a vault that could not be read is put in the reply where it can
+   * actually be read rather than left to a coloured dot.
    */
-  var TRANSIENT = { listening: 'Listening', thinking: 'Thinking', speaking: 'Speaking' };
-
   var state = 'idle';
   var resting = 'Reading vault';
   var restingFault = false;
 
   function paintState() {
-    var line = el('core-state');
-    var text = state === 'idle' ? resting : TRANSIENT[state] || resting;
-    if (line.textContent !== text) line.textContent = text;
-    line.classList.toggle('is-fault', state === 'idle' && restingFault);
-    el('stage').dataset.state = state;
+    var stage = el('stage');
+    stage.dataset.state = state;
+    // Idle is not one thing: a vault that would not open is still idle, and
+    // the dot has to be able to say so.
+    stage.dataset.fault = state === 'idle' && restingFault ? 'true' : 'false';
 
     // The sphere leans in while he is working. One multiplier, eased — it
-    // costs nothing per frame and it is the only thing on screen that says
-    // "busy" without adding a word to it.
+    // costs nothing per frame, and with the words gone it is most of what
+    // says "busy".
     if (view !== null && typeof view.setActivity === 'function') {
       view.setActivity(state === 'thinking' || state === 'listening' ? 1 : 0);
     }
@@ -81,7 +84,7 @@
     paintState();
   }
 
-  /** The line shown whenever nothing is happening. */
+  /** What is true when nothing is happening. Reported, not printed. */
   function setResting(text, fault) {
     resting = text;
     restingFault = Boolean(fault);
@@ -105,9 +108,6 @@
     el('reply-note').textContent = note || '';
     el('reply-note').hidden = !note;
     el('reply').hidden = false;
-    // The state line and the reply say the same thing in different words, so
-    // only one of them is ever up. The reply wins: it is the answer.
-    el('core-state').hidden = true;
 
     window.clearTimeout(replyTimer);
     var words = text.split(/\s+/).length;
@@ -117,7 +117,6 @@
   function clearReply() {
     window.clearTimeout(replyTimer);
     var reply = el('reply');
-    el('core-state').hidden = false;
     if (reply.hidden) return false;
     reply.hidden = true;
     el('reply-text').textContent = '';
@@ -143,6 +142,9 @@
         return res.json();
       })
       .then(function (galaxy) {
+        // A read that succeeded clears a previous failure's message, so the
+        // screen does not keep saying the vault is unreadable after it is not.
+        if (restingFault) clearReply();
         // Measured round trip for this request, not an average or an estimate.
         lastLatency = Math.round(window.performance.now() - started);
         lastSyncAt = new Date();
@@ -165,6 +167,10 @@
         // time is left alone, because it is still the last time this page did
         // read the vault.
         setResting('Vault unreadable', true);
+        // Said out loud as well as shown on the dot. A coloured dot is enough
+        // to notice something is wrong and not enough to know what, and this
+        // is the one fault that stops everything else working.
+        showReply('The vault could not be read.');
         lastLatency = null;
         console.warn('Could not read the galaxy:', err.message);
       })
