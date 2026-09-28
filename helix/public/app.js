@@ -555,11 +555,89 @@
   // playing, and Helix talking over himself is not the joke.
   var player = new Audio();
 
+  /*
+   * The sphere breathes with what he is actually saying.
+   *
+   * The level is read off the playing audio through an AnalyserNode rather
+   * than animated on a timer. A timer would keep swelling through the pauses
+   * between words and drift out of step with the voice, which reads worse
+   * than not moving at all.
+   *
+   * Three things about this are easy to get wrong and are load-bearing:
+   *
+   *   createMediaElementSource may be called once per element, ever. A second
+   *   call throws, so the graph is built once and reused for every line.
+   *
+   *   Routing an element through Web Audio takes it off the speakers until
+   *   something connects to the destination. Forget that and Helix goes
+   *   silent — so the connection to destination is made in the same breath.
+   *
+   *   None of it may be allowed to cost the audio. Every step is guarded, and
+   *   a failure means the sphere sits still while he talks, never that he
+   *   cannot talk.
+   */
+  var voiceCtx = null;
+  var voiceAnalyser = null;
+  var voiceSamples = null;
+  var voiceFrame = 0;
+
+  function watchVoice() {
+    if (voiceAnalyser !== null) return true;
+
+    var Ctor = window.AudioContext || window.webkitAudioContext;
+    if (Ctor === undefined) return false;
+
+    try {
+      voiceCtx = new Ctor();
+      var source = voiceCtx.createMediaElementSource(player);
+      voiceAnalyser = voiceCtx.createAnalyser();
+      voiceAnalyser.fftSize = 256;
+      source.connect(voiceAnalyser);
+      // And on to the speakers. Without this line he is mute.
+      voiceAnalyser.connect(voiceCtx.destination);
+      voiceSamples = new Float32Array(voiceAnalyser.fftSize);
+      return true;
+    } catch (err) {
+      console.warn('The sphere will not follow the voice:', err.message);
+      voiceCtx = null;
+      voiceAnalyser = null;
+      return false;
+    }
+  }
+
+  function stopFollowingVoice() {
+    if (voiceFrame !== 0) window.cancelAnimationFrame(voiceFrame);
+    voiceFrame = 0;
+    // null, not 0. Zero is a gap between two words and keeps the shell drawn
+    // in; null is "he has stopped", and returns it to full size.
+    if (view !== null && typeof view.setVoice === 'function') view.setVoice(null);
+  }
+
+  function followVoice() {
+    if (voiceAnalyser === null || view === null || typeof view.setVoice !== 'function') return;
+    stopFollowingVoice();
+
+    // Speech sits well below full scale, so the RMS is lifted to use the
+    // whole range. Squaring first keeps the quiet parts quiet — without it
+    // the shell hovers near its maximum for the length of every sentence.
+    var lift = 6;
+
+    (function read() {
+      voiceFrame = window.requestAnimationFrame(read);
+      voiceAnalyser.getFloatTimeDomainData(voiceSamples);
+      var sum = 0;
+      for (var i = 0; i < voiceSamples.length; i += 1) sum += voiceSamples[i] * voiceSamples[i];
+      var rms = Math.sqrt(sum / voiceSamples.length);
+      view.setVoice(Math.min(1, rms * lift));
+    })();
+  }
+
   // play() resolves when playback starts, not when it ends, so the end of the
   // spoken line has to come from the element itself. Without this the screen
   // drops out of "speaking" while he is still talking.
-  player.addEventListener('ended', function () { setState('idle'); });
-  player.addEventListener('error', function () { setState('idle'); });
+  player.addEventListener('ended', function () { stopFollowingVoice(); setState('idle'); });
+  player.addEventListener('error', function () { stopFollowingVoice(); setState('idle'); });
+  player.addEventListener('pause', stopFollowingVoice);
 
   function speak(text) {
     busy(1);
@@ -581,12 +659,24 @@
         // so a long session does not hold on to every reply it ever spoke.
         if (player.src !== '') URL.revokeObjectURL(player.src);
         player.src = URL.createObjectURL(blob);
+        // Built before play, because routing the element through Web Audio
+        // after it has started can drop the first moment of the line.
+        var following = watchVoice();
+        // A context created before the first gesture starts suspended, and a
+        // suspended context passes silence through. Resuming is a no-op when
+        // it is already running.
+        if (following && voiceCtx.state === 'suspended') voiceCtx.resume().catch(function () {});
+
         // Autoplay may be refused until the page has been interacted with.
         // Speaking is always triggered by a click or a keystroke, so this
         // should not arise — but a rejected promise must not go unhandled.
-        return player.play().catch(function (err) {
-          throw new Error('The browser would not play it: ' + err.message);
-        });
+        return player
+          .play()
+          .then(function () { if (following) followVoice(); })
+          .catch(function (err) {
+            stopFollowingVoice();
+            throw new Error('The browser would not play it: ' + err.message);
+          });
       })
       .then(function () { busy(-1); })
       .catch(function (err) { busy(-1); throw err; });

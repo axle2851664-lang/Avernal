@@ -228,6 +228,28 @@ describe('public/galaxy.js', () => {
     expect(galaxy).toContain('function shellRadius()');
   });
 
+  it('breathes inward while he talks, not outward', () => {
+    // Measured: at rest the sphere is 828 of the 900 pixels the stage is
+    // tall, so there is nothing to grow into — an outward swell pushed the
+    // poles off screen and the motion capped out flat. It contracts between
+    // syllables instead, which is the same relative movement with somewhere
+    // to go.
+    expect(galaxy).toContain('var VOICE_DUCK');
+    expect(galaxy).toContain('shell = shellBase * (1 - speaking * VOICE_DUCK * (1 - voice));');
+    // The resting size is untouched, so the screen looks the same when he is
+    // not talking.
+    expect(galaxy).toContain('shell = shellBase;');
+  });
+
+  it('tells a silence between words from having stopped talking', () => {
+    // Both arrive as "quiet". Zero has to keep the shell drawn in or it
+    // snaps back to full size in every gap; null has to release it or it
+    // stays drawn in after he has finished.
+    expect(galaxy).toContain('if (level === null || level === undefined) {');
+    expect(galaxy).toContain('speakingTarget = 0;');
+    expect(app).toContain('view.setVoice(null)');
+  });
+
   it('keeps a ceiling on everything it draws', () => {
     // The renderer's cost is bounded by these, not by how large a vault gets.
     for (const cap of ['MAX_NODES', 'MAX_LINKS', 'MAX_GLOW', 'MAX_PULSES']) {
@@ -355,6 +377,35 @@ describe('public/app.js', () => {
     // With a flag, the first of two overlapping requests to finish clears the
     // indicator while the second is still running.
     expect(app).toContain('inFlight = Math.max(0, inFlight + delta)');
+  });
+
+  it('reads the level off the audio rather than animating a guess', () => {
+    // A timer would keep swelling through the pauses between words and drift
+    // out of step with the voice, which reads worse than not moving at all.
+    expect(app).toContain('createMediaElementSource(player)');
+    expect(app).toContain('getFloatTimeDomainData');
+  });
+
+  it('keeps the audio on the speakers when it routes it through Web Audio', () => {
+    // Routing an element through Web Audio takes it off the output until
+    // something connects to the destination. Forget this line and Helix is
+    // silent while the sphere animates beautifully.
+    expect(app).toContain('voiceAnalyser.connect(voiceCtx.destination)');
+  });
+
+  it('builds the audio graph once, because it can only be built once', () => {
+    // createMediaElementSource throws on a second call for the same element,
+    // so a graph rebuilt per line breaks every line after the first.
+    expect(app).toContain("if (voiceAnalyser !== null) return true;");
+    // And a failure to build it must cost the animation, never the speech.
+    const watch = app.slice(app.indexOf('function watchVoice()'));
+    expect(watch.slice(0, watch.indexOf('function stopFollowingVoice'))).toContain('catch (err)');
+  });
+
+  it('stops following the voice on every way playback can end', () => {
+    for (const event of ['ended', 'error', 'pause']) {
+      expect(app, event).toMatch(new RegExp("addEventListener\\('" + event + "'"));
+    }
   });
 
   it('says so on screen when it could not speak the answer', () => {

@@ -268,6 +268,20 @@
     // switched so the change reads as the sphere leaning in, not as a jump.
     var activity = 0;
     var activityTarget = 0;
+    /*
+     * How loud Helix is, right now, 0 to 1, and the value easing toward it.
+     *
+     * Driven from the actual audio coming out of the speech, not from a timer
+     * — a loop that swells on its own would keep swelling through a pause,
+     * and be visibly out of step with the voice, which is worse than not
+     * moving at all.
+     */
+    var voice = 0;
+    var voiceTarget = 0;
+    // Whether he is speaking at all, as against speaking quietly. Eased, so
+    // the shell settles into and out of breathing rather than snapping.
+    var speaking = 0;
+    var speakingTarget = 0;
     var tilt = 0;
     var tiltTarget = 0;
     var width = 0;
@@ -275,6 +289,9 @@
     var last = 0;
     var frame = 0;
     var shell = 0;
+    // What the shell measures when Helix is not talking. `shell` is this,
+    // swollen by however loud he is; the base is what resize() sets.
+    var shellBase = 0;
     var unit = 1;
     var visible = true;
     var pointerX = -1;
@@ -296,6 +313,22 @@
       return Math.min(width * 0.36, height * 0.46);
     }
 
+    /*
+     * How far the shell draws in between syllables, as a fraction of its
+     * resting size.
+     *
+     * It contracts rather than expands, and that is not a stylistic choice:
+     * at rest the sphere is already 828 of the 900 pixels the stage is tall
+     * (measured), so there is nothing to grow into — swelling it pushed the
+     * poles off the top and bottom of the screen and the motion capped out
+     * flat. Breathing down from full size is the same relative movement with
+     * somewhere to go.
+     *
+     * Full voice is the resting size. Silence between words is this much
+     * smaller.
+     */
+    var VOICE_DUCK = 0.12;
+
     function resize() {
       var rect = canvas.getBoundingClientRect();
       // Capping the ratio keeps a 3x phone from rendering nine times the
@@ -306,7 +339,8 @@
       canvas.width = Math.max(1, Math.round(width * dpr));
       canvas.height = Math.max(1, Math.round(height * dpr));
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      shell = shellRadius();
+      shellBase = shellRadius();
+      shell = shellBase;
       // Dot and glow sizes are quoted against a desktop shell. On a phone the
       // shell is a third of that, and fixed pixel sizes there make a
       // well-linked vault a solid white blob: the points overlap and the glow
@@ -546,6 +580,17 @@
     function advance(dt) {
       activity += (activityTarget - activity) * 0.05;
 
+      /*
+       * Track the voice quickly, fall away slowly.
+       *
+       * Speech is mostly gaps. Easing symmetrically made the shell flicker on
+       * every consonant; rising fast and falling slow rides the syllables
+       * instead, which is what a voice looks like.
+       */
+      voice += (voiceTarget - voice) * (voiceTarget > voice ? 0.35 : 0.08);
+      speaking += (speakingTarget - speaking) * 0.12;
+      shell = shellBase * (1 - speaking * VOICE_DUCK * (1 - voice));
+
       // At full activity the shell turns half again as fast and the pulses
       // run at double. Both are multiplications already in the loop, so this
       // costs nothing measurable — it is the same frame, slightly quicker.
@@ -648,6 +693,28 @@
         marked = typeof id === 'number' && id >= 0 && id < points.length ? id : -1;
         draw();
         return marked;
+      },
+
+      /**
+       * How loud Helix is, 0 to 1. The shell breathes with it.
+       *
+       * Called every frame while he is speaking, and with null when he
+       * stops — null is not the same as 0, which is a silence between two
+       * words. Zero means "speaking, and quiet just now", so the shell stays
+       * drawn in; null means "not speaking", and it returns to full size.
+       *
+       * Eased in the loop, so this is only a target, and under reduced motion
+       * there is no loop and the shell is left alone.
+       */
+      setVoice: function (level) {
+        if (level === null || level === undefined) {
+          speakingTarget = 0;
+          voiceTarget = 0;
+          return null;
+        }
+        speakingTarget = 1;
+        voiceTarget = Math.max(0, Math.min(1, Number(level) || 0));
+        return voiceTarget;
       },
 
       /**
