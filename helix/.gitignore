@@ -21,7 +21,11 @@ huggingface_cache/
 # OAuth tokens for the local integrations
 .tokens.json
 models/
-vault/
+# The data vault, anchored to this folder. Unanchored it also matched
+# src/platform/vault/, which silently kept a source file out of a commit —
+# the tracked files there predate the rule, so nothing noticed until a new
+# one was added and CI could not compile what it had checked out.
+/vault/
 
 # What Helix remembers and what you said to him. Personal, and never shared.
 helix-memory.json
