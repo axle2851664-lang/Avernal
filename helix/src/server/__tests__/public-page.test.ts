@@ -58,7 +58,11 @@ describe('public/index.html', () => {
     // the easy thing to reintroduce, so both halves are pinned.
     expect(page).toContain('class="hx-sheet" id="sheet" hidden');
     expect(page).not.toContain('hx-tab');
-    expect(app).toContain("var PANELS = { 'note-panel': 'Note', 'gen-panel': 'Generate'");
+    // Every panel the sheet can show. They all live behind it, so the core
+    // screen gains nothing permanent for any of them.
+    for (const panel of ['note-panel', 'gen-panel', 'keys-panel', 'pad-panel', 'export-panel']) {
+      expect(app, panel).toContain("'" + panel + "':");
+    }
   });
 
   it('writes nothing on the main screen but a reply', () => {

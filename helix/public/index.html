@@ -97,6 +97,45 @@
       <div class="hx-status" id="note-status"></div>
     </section>
 
+    <!-- The notepad. In the sheet like everything else, so the core screen
+         gains nothing permanent for it and Esc always means "back to the
+         sphere". -->
+    <section class="hx-panel" id="pad-panel" hidden>
+      <div class="hx-row">
+        <input class="hx-field" id="pad-search" type="search" autocomplete="off"
+               spellcheck="false" placeholder="Search notes" aria-label="Search notes" />
+        <button class="hx-btn hx-btn--slim" id="pad-new" type="button">New note</button>
+      </div>
+      <p class="hx-note" id="pad-count"></p>
+      <ul class="hx-pad__list" id="pad-list"></ul>
+
+      <!-- One note, open. Hidden until a note is picked. -->
+      <div class="hx-pad__note" id="pad-note" hidden>
+        <input class="hx-field hx-pad__title" id="pad-title" autocomplete="off"
+               aria-label="Note title" />
+        <textarea class="hx-field hx-pad__body" id="pad-body" aria-label="Note"></textarea>
+        <input class="hx-field" id="pad-tags" autocomplete="off"
+               placeholder="Tags, separated by commas" aria-label="Tags" />
+        <div class="hx-row">
+          <button class="hx-btn" id="pad-save" type="button">Save</button>
+          <button class="hx-btn hx-btn--quiet" id="pad-back" type="button">Back to notes</button>
+          <button class="hx-btn hx-btn--danger" id="pad-delete" type="button">Delete</button>
+        </div>
+        <p class="hx-note" id="pad-meta"></p>
+      </div>
+      <div class="hx-status" id="pad-status"></div>
+    </section>
+
+    <!-- Taking it all with you. -->
+    <section class="hx-panel" id="export-panel" hidden>
+      <p class="hx-note" id="export-intro">Reading what Helix holds…</p>
+      <div id="export-choices"></div>
+      <div class="hx-row">
+        <button class="hx-btn" id="export-go" type="button">Download</button>
+      </div>
+      <div class="hx-status" id="export-status"></div>
+    </section>
+
     <!-- Keys. In the sheet with everything else, so the main screen gains
          nothing permanent for it. Built from /settings at open time rather
          than written out here: the server owns what is settable, and two

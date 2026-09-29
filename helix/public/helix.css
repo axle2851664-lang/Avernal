@@ -552,6 +552,111 @@ a:hover { color: var(--hx-text); border-color: var(--hx-line-active); }
   50% { opacity: 0.35; }
 }
 
+/* ---------------------------------------------------------------- notepad */
+
+/* A list of notes: title, when, and the first line. Rules between them rather
+   than cards — a card per note would be a wall of boxes. */
+.hx-pad__list {
+  list-style: none;
+  margin: var(--hx-gap-lg) 0 0;
+  padding: 0;
+}
+
+.hx-pad__row {
+  display: grid;
+  gap: 0.3rem;
+  padding: var(--hx-gap) 0;
+  border-top: 1px solid var(--hx-line);
+  cursor: pointer;
+  transition: opacity 180ms var(--hx-ease);
+}
+
+.hx-pad__row:hover { opacity: 1; }
+.hx-pad__row:not(:hover) { opacity: 0.86; }
+
+.hx-pad__row:focus-visible {
+  outline: 1px solid var(--hx-line-active);
+  outline-offset: 3px;
+}
+
+.hx-pad__row-title {
+  color: var(--hx-text);
+  font-size: 0.98rem;
+}
+
+.hx-pad__row-meta {
+  color: var(--hx-text-faint);
+  font-family: var(--hx-font-mono);
+  font-size: var(--hx-label-size);
+  letter-spacing: var(--hx-label-tracking);
+}
+
+.hx-pad__row-excerpt {
+  color: var(--hx-text-dim);
+  font-size: 0.85rem;
+  line-height: 1.5;
+  /* One line. The note itself is one click away, and a list where every row
+     is a paragraph is not a list. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* One note, open. */
+.hx-pad__note { margin-top: var(--hx-gap-lg); }
+
+.hx-pad__title {
+  font-size: 1.05rem;
+  margin-bottom: var(--hx-gap);
+}
+
+.hx-pad__body {
+  min-height: 34vh;
+  line-height: 1.7;
+  margin-bottom: var(--hx-gap);
+  resize: vertical;
+}
+
+.hx-pad__note .hx-field + .hx-field { margin-bottom: var(--hx-gap); }
+
+/* Quieter and louder buttons, for a row that has both a save and a delete. */
+.hx-btn--slim { flex: 0 0 auto; padding-left: 1.2rem; padding-right: 1.2rem; }
+.hx-btn--quiet { opacity: 0.7; }
+.hx-btn--quiet:hover:not(:disabled) { opacity: 1; }
+
+.hx-btn--danger { border-color: rgb(232 160 160 / 45%); color: var(--hx-alert); }
+.hx-btn--danger:hover:not(:disabled) {
+  border-color: var(--hx-alert);
+  background: rgb(232 160 160 / 8%);
+}
+
+/* ----------------------------------------------------------------- export */
+
+/* One line per thing you could take, and what it holds. */
+.hx-choice {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  padding: var(--hx-gap) 0;
+  border-top: 1px solid var(--hx-line);
+  cursor: pointer;
+}
+
+.hx-choice input { margin-top: 0.3rem; accent-color: #fff; }
+
+.hx-choice__label {
+  display: block;
+  color: var(--hx-text);
+}
+
+.hx-choice__says {
+  display: block;
+  margin-top: 0.25rem;
+  color: var(--hx-text-faint);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
 /* ------------------------------------------------------------------- keys */
 
 /* A field, what it is for, and a way to empty it. */

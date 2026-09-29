@@ -8,10 +8,18 @@ import { YouTubeSync, type Video } from '../integrations/youtube.js';
 import { generateImage, generateVideo } from '../integrations/generators.js';
 import { ElevenLabsVoice, VoiceError, MAX_AUDIO_BYTES } from '../integrations/elevenlabs.js';
 import { SettingsError, SettingsFile } from './settings.js';
+import {
+  BUNDLE_CHOICES,
+  BundleError,
+  NEVER_INCLUDED,
+  buildBundle,
+  choiceFor,
+} from './export-bundle.js';
 import { WEB_ADDENDUM, webTriggerFor } from '../core/brain/web.js';
+import { notepadIntent } from '../core/brain/notepad-intent.js';
 import { HelixMind, MindError, type Exchange } from '../integrations/claude.js';
 import { SYSTEM_PROMPT, renderNotesContext } from '../core/galaxy/persona.js';
-import { groundedNotes } from '../core/galaxy/retrieval.js';
+import { GROUNDING_THRESHOLD, groundedNotes } from '../core/galaxy/retrieval.js';
 import { TokenStore } from './token-store.js';
 import { isLoopback, requireToken } from './auth.js';
 import {
@@ -38,7 +46,17 @@ import {
   MEMORY_CATEGORIES,
   type MemoryCategory,
 } from '../core/brain/index.js';
-import { existingCaptureSlugs, scanVault, writeCapture } from '../platform/vault/index.js';
+import {
+  NotepadError,
+  existingCaptureSlugs,
+  listNotes,
+  readNote,
+  removeNote,
+  scanVault,
+  searchNotes,
+  updateNote,
+  writeCapture,
+} from '../platform/vault/index.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -610,6 +628,141 @@ async function saveNote(text: string, origin: string): Promise<{ title: string; 
 }
 
 // Add a note by hand.
+/* -------------------------------------------------------------- export */
+
+/*
+ * Taking Helix's own data off the machine.
+ *
+ * No drive detection, because there is none to be had: a page cannot see a
+ * USB stick and this server cannot see one plugged into the phone talking to
+ * it. What it does is hand back a bundle the browser downloads, which you put
+ * wherever you like — a flash drive included.
+ *
+ * Secrets cannot reach it by construction: buildBundle is pure and is handed
+ * notes, memories and turns. It is never given a key, so it cannot pack one.
+ */
+app.get('/export/options', (_req: Request, res: Response) => {
+  res.json({ choices: BUNDLE_CHOICES, never: NEVER_INCLUDED });
+});
+
+app.post('/export', async (req: Request, res: Response) => {
+  let choice;
+  try {
+    choice = choiceFor((req.body as { choice?: unknown })?.choice);
+  } catch (error) {
+    return res.status(400).json({ error: (error as BundleError).message });
+  }
+
+  try {
+    const notes = choice.parts.includes('notepad')
+      ? await Promise.all(
+          (await listNotes(VAULT_ROOT)).map((note) => readNote(VAULT_ROOT, note.id))
+        )
+      : [];
+
+    const bundle = buildBundle(
+      choice,
+      {
+        notes,
+        memories: choice.parts.includes('memory') ? memory.all() : [],
+        turns: choice.parts.includes('conversation')
+          ? conversation.all().map((turn) => ({
+              question: turn.question,
+              answer: turn.answer,
+              at: turn.at,
+            }))
+          : [],
+      },
+      new Date()
+    );
+
+    res.json({ choice: bundle.choice, counts: bundle.counts, files: bundle.files });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      // No vault yet. An empty export is the truthful answer, not a failure.
+      const bundle = buildBundle(choice, { notes: [], memories: [], turns: [] }, new Date());
+      return res.json({ choice: bundle.choice, counts: bundle.counts, files: bundle.files });
+    }
+    console.error('Export failed:', error);
+    res.status(500).json({ error: 'The export could not be built.' });
+  }
+});
+
+/* ------------------------------------------------------------- notepad */
+
+/*
+ * The notepad is the vault.
+ *
+ * These four routes are list, read, change and delete over the notes already
+ * on disk — the ones POST /notes writes, the galaxy draws, and /ask answers
+ * from. A notepad with a store of its own would be a second copy of the same
+ * notes, and whichever Helix answered from would be whichever was written to
+ * last.
+ */
+function sendNotepadError(res: Response, error: unknown): void {
+  if (error instanceof NotepadError) {
+    res.status(error.status).json({ error: error.message });
+    return;
+  }
+  // Not passed through: an fs error carries the vault's path.
+  console.error('Notepad failed:', error);
+  res.status(500).json({ error: 'The notepad could not be read.' });
+}
+
+/** Every note, or the ones matching ?q=. Metadata only — never every body. */
+app.get('/notepad', async (req: Request, res: Response) => {
+  const query = typeof req.query.q === 'string' ? req.query.q : '';
+  try {
+    const notes = query.trim() === '' ? await listNotes(VAULT_ROOT) : await searchNotes(VAULT_ROOT, query);
+    res.json({ notes, query: query.trim() });
+  } catch (error) {
+    // An absent vault is an empty notepad, not a failure: it is what a first
+    // run looks like.
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return res.json({ notes: [], query: query.trim() });
+    }
+    sendNotepadError(res, error);
+  }
+});
+
+/*
+ * One note, in full.
+ *
+ * The id is a vault-relative path, so it is taken from the query string
+ * rather than the URL path — Express would otherwise split it on its own
+ * slashes and hand back only the last segment.
+ */
+app.get('/notepad/note', async (req: Request, res: Response) => {
+  try {
+    res.json(await readNote(VAULT_ROOT, req.query.id));
+  } catch (error) {
+    sendNotepadError(res, error);
+  }
+});
+
+app.patch('/notepad/note', async (req: Request, res: Response) => {
+  const body = req.body as { id?: unknown; title?: unknown; content?: unknown; tags?: unknown };
+  const patch: { title?: string; content?: string; tags?: string[] } = {};
+  if (typeof body.title === 'string') patch.title = body.title;
+  if (typeof body.content === 'string') patch.content = body.content;
+  if (Array.isArray(body.tags)) patch.tags = body.tags.map((tag) => String(tag));
+
+  try {
+    res.json(await updateNote(VAULT_ROOT, body.id, patch));
+  } catch (error) {
+    sendNotepadError(res, error);
+  }
+});
+
+app.delete('/notepad/note', async (req: Request, res: Response) => {
+  try {
+    const gone = await removeNote(VAULT_ROOT, (req.body as { id?: unknown })?.id ?? req.query.id);
+    res.json({ deleted: true, note: gone });
+  } catch (error) {
+    sendNotepadError(res, error);
+  }
+});
+
 app.post('/notes', async (req: Request, res: Response) => {
   const { text } = req.body as { text?: string };
   if (typeof text !== 'string' || text.trim() === '') {
@@ -1136,6 +1289,29 @@ app.post('/ask', async (req: Request, res: Response) => {
       }
     }
 
+    /*
+     * The notepad, when the words are about notes.
+     *
+     * Recognised here rather than in the browser so that speaking and typing
+     * go through one rule — the microphone posts to this same route, and a
+     * second implementation on the client would drift from this one.
+     *
+     * Only `create` acts. The rest are answered with an intent the screen
+     * carries out, because opening a screen is the screen's business, and
+     * because a misheard sentence must not be able to delete a note.
+     */
+    const pad = notepadIntent(question);
+    let padSaved: { title: string; path: string } | null = null;
+
+    if (pad !== null && pad.action === 'create' && pad.subject !== '') {
+      try {
+        const written = await saveNote(pad.subject, '');
+        padSaved = { title: written.title, path: written.path };
+      } catch (error) {
+        console.error('Could not write the note:', error);
+      }
+    }
+
     // Facts first: whatever in the vault is actually about this question.
     // groundedNotes returns nothing rather than the best of a bad lot, which
     // is what keeps him from answering confidently out of an unrelated note.
@@ -1144,7 +1320,35 @@ app.post('/ask', async (req: Request, res: Response) => {
       throw error;
     });
     const galaxy = buildGalaxy(notes);
-    const sources = groundedNotes(galaxy, question);
+    let sources = groundedNotes(galaxy, question);
+
+    /*
+     * Asked to look through the notes, rather than asked a question.
+     *
+     * groundedNotes only attaches a note scoring at least a title match, so a
+     * word mentioned once in the middle of a long note never reaches the
+     * model. That threshold is right for an ordinary question — it is what
+     * stops Helix answering confidently out of a note that merely shares a
+     * word — but it is wrong when the person has explicitly said "find my
+     * note about X", because the whole request is to go looking.
+     *
+     * So on that intent the notepad's own search runs, which does read
+     * bodies, and its hits are added to whatever was already grounded. The
+     * threshold is untouched for every other question.
+     */
+    if (pad !== null && pad.action === 'search' && pad.subject !== '') {
+      const found = await searchNotes(VAULT_ROOT, pad.subject).catch(() => []);
+      const byKey = new Map(galaxy.nodes.map((node) => [node.key, node.id]));
+      const already = new Set(sources.map((source) => source.id));
+
+      const extra = found
+        .map((note) => byKey.get(note.id))
+        .filter((id): id is number => id !== undefined && !already.has(id))
+        .map((id) => ({ id, score: GROUNDING_THRESHOLD }));
+
+      sources = [...sources, ...extra].slice(0, 8);
+    }
+
     const notesBlock = renderNotesContext(galaxy, sources);
 
     // Then memory: what the brain considers relevant, with the reason it was
@@ -1233,6 +1437,12 @@ app.post('/ask', async (req: Request, res: Response) => {
         web === null
           ? null
           : { trigger: web.phrase, searches: answer.searches, sources: answer.sources },
+      // What the words were taken to mean about notes, and what was written
+      // if anything was. The screen acts on the first and says the second.
+      notepad:
+        pad === null
+          ? null
+          : { action: pad.action, subject: pad.subject, phrase: pad.phrase, saved: padSaved },
       // Which notes were used, so a wrong answer is traceable to its source.
       sources: sources.map((source) => ({
         id: source.id,

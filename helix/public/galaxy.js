@@ -278,6 +278,18 @@
      */
     var voice = 0;
     var voiceTarget = 0;
+    /*
+     * How much light there is around the shell, 0 to 1.
+     *
+     * Derived rather than eased on its own: activity and voice are already
+     * smoothed, so taking the larger of them gives one source of truth and
+     * costs nothing. Listening and thinking raise it; speaking rides the
+     * syllables through `voice`.
+     */
+    var energy = 0;
+    // Something is wrong. The light stops moving and dims rather than turning
+    // anything red — the dot at the foot is where a fault is stated.
+    var faulted = false;
     var tilt = 0;
     var tiltTarget = 0;
     var width = 0;
@@ -397,9 +409,22 @@
         pnear[i] = outNear;
       }
 
-      /* The aurora, behind everything: it is the light the shell sits in. */
+      /*
+       * The aurora, behind everything: it is the light the shell sits in, and
+       * the only thing on this screen that says what Helix is doing.
+       *
+       *   idle       a slow breath, barely there
+       *   listening  brighter, breathing faster
+       *   thinking   brighter still, and turning quicker
+       *   speaking   riding the syllables through `energy`
+       *   faulted    dimmed, and completely still
+       *
+       * All of it is multipliers on values the pass already computes, so it
+       * is the same frame either way.
+       */
       if (aurora !== null) {
-        var reach = shell * AURORA_OUTER;
+        // The light spreads a little when there is more of it.
+        var reach = shell * (AURORA_OUTER + energy * 0.10);
         ctx.save();
         // Clip to the annulus the light actually occupies. Without it the
         // blit touches the hollow centre and the corners too — about half the
@@ -414,16 +439,31 @@
         ctx.imageSmoothingQuality = 'low';
         ctx.translate(cx, cy);
 
+        /*
+         * Breathing.
+         *
+         * A slow sine at rest, quickening with energy. Held flat when
+         * faulted: light that has stopped moving reads as something being
+         * wrong without a word or a colour, and it is one multiplication.
+         */
+        var breath = faulted
+          ? 0.5
+          : 0.55 + 0.45 * Math.sin((clock / (17000 - energy * 9000)) * Math.PI * 2);
+
+        // Brighter when busy, dimmer when faulted. Kept well under one:
+        // this is atmosphere, not a light source.
+        var lit = (faulted ? 0.45 : 0.85 + energy * 0.5) * breath;
+
         // The same curtains twice, turning opposite ways at different rates.
         // One pass only spins; two drift in and out of phase, and that
         // interference is what waves. A third was not worth the frame.
         for (var v = 0; v < 1; v += 1) {
           var back = v === 1;
           ctx.save();
-          ctx.globalAlpha =
-            (back ? 0.5 : 0.85) *
-            (0.55 + 0.45 * Math.sin((clock / (back ? 23000 : 17000)) * Math.PI * 2 + v * 2.1));
-          ctx.rotate(clock * AURORA_SPIN * (back ? -0.62 : 1) + v * 2.4);
+          ctx.globalAlpha = Math.min(1, (back ? 0.6 : 1) * lit);
+          // Turning harder while he works, and stopped dead when faulted.
+          var turn = faulted ? 0 : clock * AURORA_SPIN * (1 + energy * 1.6);
+          ctx.rotate(turn * (back ? -0.62 : 1) + v * 2.4);
           ctx.drawImage(aurora, -reach, -reach, reach * 2, reach * 2);
           ctx.restore();
         }
@@ -584,6 +624,9 @@
        */
       voice += (voiceTarget - voice) * (voiceTarget > voice ? 0.35 : 0.08);
       shell = shellBase * (1 + voice * VOICE_SWELL);
+      // Voice counts slightly less than deliberate activity: a loud syllable
+      // should not out-glow Helix actually working on something.
+      energy = Math.max(activity, voice * 0.9);
 
       // At full activity the shell turns half again as fast and the pulses
       // run at double. Both are multiplications already in the loop, so this
@@ -687,6 +730,19 @@
         marked = typeof id === 'number' && id >= 0 && id < points.length ? id : -1;
         draw();
         return marked;
+      },
+
+      /**
+       * Something is wrong, or is not any more.
+       *
+       * The light stops and dims. Nothing turns red — the dot at the foot of
+       * the screen is where a fault is stated, and a sphere that has gone
+       * still says "not working" on its own.
+       */
+      setFault: function (on) {
+        faulted = Boolean(on);
+        if (reduced) draw();
+        return faulted;
       },
 
       /**

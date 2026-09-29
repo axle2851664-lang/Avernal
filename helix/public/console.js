@@ -109,6 +109,24 @@
       },
     },
     {
+      name: 'NOTEPAD',
+      hint: 'Your notes — read, write, search, delete',
+      run: function () {
+        if (!api().notepad) return fail('The page is not ready yet.'), 'stay';
+        api().notepad({ action: 'open', subject: '' });
+        return 'close';
+      },
+    },
+    {
+      name: 'EXPORT',
+      hint: 'Take your notes and memory with you',
+      run: function () {
+        if (!api().notepad) return fail('The page is not ready yet.'), 'stay';
+        api().notepad({ action: 'export', subject: '' });
+        return 'close';
+      },
+    },
+    {
       name: 'SETTINGS',
       hint: 'Put your API keys in',
       run: function () {

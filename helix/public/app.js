@@ -69,11 +69,18 @@
     // the dot has to be able to say so.
     stage.dataset.fault = state === 'idle' && restingFault ? 'true' : 'false';
 
-    // The sphere leans in while he is working. One multiplier, eased — it
-    // costs nothing per frame, and with the words gone it is most of what
-    // says "busy".
+    /*
+     * The sphere is the whole report now.
+     *
+     * Activity drives how hard it turns and how much light is around it;
+     * the fault flag stops the light entirely. Between them the screen says
+     * idle, listening, thinking, speaking and broken without a word.
+     */
     if (view !== null && typeof view.setActivity === 'function') {
       view.setActivity(state === 'thinking' || state === 'listening' ? 1 : 0);
+    }
+    if (view !== null && typeof view.setFault === 'function') {
+      view.setFault(state === 'idle' && restingFault);
     }
   }
 
@@ -240,7 +247,13 @@
    * one click, which the console already does by name. Shut, the screen is the
    * sphere and nothing else.
    */
-  var PANELS = { 'note-panel': 'Note', 'gen-panel': 'Generate', 'keys-panel': 'Keys' };
+  var PANELS = {
+    'note-panel': 'Note',
+    'gen-panel': 'Generate',
+    'keys-panel': 'Keys',
+    'pad-panel': 'Notepad',
+    'export-panel': 'Export',
+  };
 
   function showPanel(panelId) {
     if (!Object.prototype.hasOwnProperty.call(PANELS, panelId)) return false;
@@ -250,6 +263,10 @@
       keysStatus('');
       loadKeys();
     }
+    // Read fresh every time: a note may have changed since it was last shown,
+    // including by Helix himself.
+    if (panelId === 'pad-panel') { padStatus(''); padLoad(el('pad-search').value); }
+    if (panelId === 'export-panel') { exportStatus(''); exportLoad(); }
     el('sheet-title').textContent = PANELS[panelId];
     Object.keys(PANELS).forEach(function (id) {
       el(id).hidden = id !== panelId;
@@ -278,6 +295,338 @@
     if (recording) { stopListening(); event.preventDefault(); return; }
     if (hideSheet() || clearReply()) event.preventDefault();
   });
+
+  /* --------------------------------------------------------------- notepad */
+
+  /*
+   * The notepad.
+   *
+   * Every note here is a file in the vault — the same vault the sphere draws
+   * and the same one Helix answers from. Editing a note changes what he
+   * knows; deleting one takes it out of the galaxy. There is no second store
+   * and nothing to keep in step.
+   */
+  var padOpen = null;   // The note being edited, or null for the list.
+  var padNotes = [];
+
+  function padStatus(message, bad) {
+    var out = el('pad-status');
+    out.textContent = message || '';
+    out.classList.toggle('error', Boolean(bad));
+  }
+
+  function padShowList() {
+    padOpen = null;
+    el('pad-note').hidden = true;
+    el('pad-list').hidden = false;
+    el('pad-count').hidden = false;
+  }
+
+  function when(iso) {
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    var now = new Date();
+    var sameDay = d.toDateString() === now.toDateString();
+    return sameDay
+      ? 'today ' + pad(d.getHours()) + ':' + pad(d.getMinutes())
+      : d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+  }
+
+  function padRender() {
+    var list = el('pad-list');
+    list.innerHTML = '';
+
+    el('pad-count').textContent =
+      padNotes.length === 0
+        ? 'No notes yet. New note starts one.'
+        : padNotes.length === 1
+          ? '1 note'
+          : padNotes.length + ' notes';
+
+    padNotes.forEach(function (note) {
+      var item = document.createElement('li');
+      item.className = 'hx-pad__row';
+      item.tabIndex = 0;
+      item.setAttribute('role', 'button');
+
+      var title = document.createElement('span');
+      title.className = 'hx-pad__row-title';
+      title.textContent = note.title;
+
+      var meta = document.createElement('span');
+      meta.className = 'hx-pad__row-meta';
+      meta.textContent = when(note.updated) + (note.tags.length ? ' · ' + note.tags.join(', ') : '');
+
+      var excerpt = document.createElement('span');
+      excerpt.className = 'hx-pad__row-excerpt';
+      excerpt.textContent = note.excerpt;
+
+      item.appendChild(title);
+      item.appendChild(meta);
+      item.appendChild(excerpt);
+      var open = function () { padOpenNote(note.id); };
+      item.addEventListener('click', open);
+      item.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
+      });
+      list.appendChild(item);
+    });
+  }
+
+  function padLoad(query) {
+    busy(1);
+    return fetch('/notepad' + (query ? '?q=' + encodeURIComponent(query) : ''))
+      .then(function (res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+      })
+      .then(function (body) {
+        padNotes = body.notes || [];
+        padShowList();
+        padRender();
+      })
+      .catch(function (err) { padStatus('Could not read the notes: ' + err.message, true); })
+      .then(function () { busy(-1); });
+  }
+
+  function padOpenNote(id) {
+    busy(1);
+    return fetch('/notepad/note?id=' + encodeURIComponent(id))
+      .then(function (res) {
+        return res.json().then(function (body) {
+          if (!res.ok) throw new Error(body.error || 'Could not open it.');
+          return body;
+        });
+      })
+      .then(function (note) {
+        padOpen = note;
+        el('pad-title').value = note.title;
+        el('pad-body').value = note.content;
+        el('pad-tags').value = note.tags.join(', ');
+        el('pad-meta').textContent =
+          'Written ' + when(note.created) + ' · last changed ' + when(note.updated) +
+          ' · ' + note.words + (note.words === 1 ? ' word' : ' words');
+        el('pad-note').hidden = false;
+        el('pad-list').hidden = true;
+        el('pad-count').hidden = true;
+        padStatus('');
+      })
+      .catch(function (err) { padStatus(err.message, true); })
+      .then(function () { busy(-1); });
+  }
+
+  el('pad-search').addEventListener('input', function () {
+    // Searched on the server, which is where the note bodies are — matching
+    // only what the list happens to be showing would miss every note whose
+    // words are in its body rather than its title.
+    window.clearTimeout(el('pad-search').dataset.timer);
+    var term = el('pad-search').value;
+    el('pad-search').dataset.timer = window.setTimeout(function () { padLoad(term); }, 200);
+  });
+
+  el('pad-new').addEventListener('click', function () {
+    // A new note goes through the same POST /notes the capture field uses, so
+    // there is one way a note comes into being.
+    var text = window.prompt('What should the note say?');
+    if (text === null || text.trim() === '') return;
+    busy(1);
+    fetch('/notes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: text }),
+    })
+      .then(function (res) { return res.json(); })
+      .then(function (body) {
+        if (body.error) throw new Error(body.details || body.error);
+        padStatus('Saved as "' + body.title + '".');
+        loadGalaxy();
+        return padLoad('');
+      })
+      .catch(function (err) { padStatus(err.message, true); })
+      .then(function () { busy(-1); });
+  });
+
+  el('pad-save').addEventListener('click', function () {
+    if (padOpen === null) return;
+    busy(1);
+    fetch('/notepad/note', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: padOpen.id,
+        title: el('pad-title').value,
+        content: el('pad-body').value,
+        tags: el('pad-tags').value.split(',').map(function (t) { return t.trim(); }).filter(Boolean),
+      }),
+    })
+      .then(function (res) {
+        return res.json().then(function (body) {
+          if (!res.ok) throw new Error(body.error || 'Could not save.');
+          return body;
+        });
+      })
+      .then(function (note) {
+        padOpen = note;
+        padStatus('Saved.');
+        // The vault changed, so the sphere has.
+        loadGalaxy();
+      })
+      .catch(function (err) { padStatus(err.message, true); })
+      .then(function () { busy(-1); });
+  });
+
+  el('pad-delete').addEventListener('click', function () {
+    if (padOpen === null) return;
+    // Asked, because this takes the note out of the vault and out of what
+    // Helix can answer with. There is no undo behind it.
+    if (!window.confirm('Delete "' + padOpen.title + '"? Helix will forget it.')) return;
+
+    busy(1);
+    fetch('/notepad/note', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: padOpen.id }),
+    })
+      .then(function (res) {
+        return res.json().then(function (body) {
+          if (!res.ok) throw new Error(body.error || 'Could not delete it.');
+          return body;
+        });
+      })
+      .then(function (body) {
+        padStatus('Deleted "' + body.note.title + '".');
+        loadGalaxy();
+        return padLoad(el('pad-search').value);
+      })
+      .catch(function (err) { padStatus(err.message, true); })
+      .then(function () { busy(-1); });
+  });
+
+  el('pad-back').addEventListener('click', function () {
+    padShowList();
+    padStatus('');
+  });
+
+  /* ---------------------------------------------------------------- export */
+
+  /*
+   * Taking it with you.
+   *
+   * No drive detection, because there is none to be had: a page cannot see a
+   * USB stick. What this does is build the bundle on the server and hand it
+   * to the browser as files to save — onto a flash drive if that is where you
+   * point it.
+   */
+  var exportChoices = [];
+
+  function exportLoad() {
+    busy(1);
+    return fetch('/export/options')
+      .then(function (res) { return res.json(); })
+      .then(function (body) {
+        exportChoices = body.choices || [];
+        var box = el('export-choices');
+        box.innerHTML = '';
+
+        exportChoices.forEach(function (choice, i) {
+          var row = document.createElement('label');
+          row.className = 'hx-choice';
+
+          var radio = document.createElement('input');
+          radio.type = 'radio';
+          radio.name = 'export-choice';
+          radio.value = choice.id;
+          if (i === 0) radio.checked = true;
+
+          var text = document.createElement('span');
+          var label = document.createElement('span');
+          label.className = 'hx-choice__label';
+          label.textContent = choice.label;
+          var says = document.createElement('span');
+          says.className = 'hx-choice__says';
+          says.textContent = choice.contains.join(' · ');
+          text.appendChild(label);
+          text.appendChild(says);
+
+          row.appendChild(radio);
+          row.appendChild(text);
+          box.appendChild(row);
+        });
+
+        // What it will not contain, said before anything is written. The
+        // reassuring half of an export is the half it leaves behind.
+        var never = document.createElement('p');
+        never.className = 'hx-note';
+        never.textContent = 'Never included: ' + (body.never || []).join(' · ');
+        box.appendChild(never);
+
+        el('export-intro').textContent =
+          'Helix builds a folder you save wherever you like — a flash drive included. ' +
+          'It cannot see your drives from here, so it hands you the files and you choose.';
+      })
+      .catch(function (err) {
+        el('export-intro').textContent = 'Could not read the export options: ' + err.message;
+      })
+      .then(function () { busy(-1); });
+  }
+
+  function exportStatus(message, bad) {
+    var out = el('export-status');
+    out.textContent = message || '';
+    out.classList.toggle('error', Boolean(bad));
+  }
+
+  el('export-go').addEventListener('click', function () {
+    var picked = el('export-choices').querySelector('input:checked');
+    if (picked === null) return;
+
+    busy(1);
+    exportStatus('Building…');
+    fetch('/export', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ choice: picked.value }),
+    })
+      .then(function (res) {
+        return res.json().then(function (body) {
+          if (!res.ok) throw new Error(body.error || 'Could not build it.');
+          return body;
+        });
+      })
+      .then(function (bundle) {
+        // Each file saved on its own. A zip would need a library, and the
+        // whole point of the folder layout is that it is readable without one.
+        bundle.files.forEach(function (file, i) {
+          window.setTimeout(function () { download(file.path, file.body); }, i * 250);
+        });
+        var counts = Object.keys(bundle.counts)
+          .map(function (k) { return bundle.counts[k] + ' ' + k; })
+          .join(', ');
+        exportStatus(
+          bundle.files.length + ' files' + (counts ? ' — ' + counts : '') +
+            '. Your browser will ask where to put them.'
+        );
+      })
+      .catch(function (err) { exportStatus(err.message, true); })
+      .then(function () { busy(-1); });
+  });
+
+  /** Hand one file to the browser to save. */
+  function download(path, body) {
+    var blob = new Blob([body], { type: 'text/plain;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var link = document.createElement('a');
+    link.href = url;
+    // Slashes are not allowed in a download name, so the folder layout is
+    // flattened into the filename and the README explains where each belongs.
+    link.download = path.replace(/\//g, '_');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    // Released on the next turn of the loop; revoking immediately can cancel
+    // the download in some browsers.
+    window.setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+  }
 
   /* ------------------------------------------------------------------ keys */
 
@@ -766,12 +1115,32 @@
       .then(function (body) {
         busy(-1);
 
+        /*
+         * The notepad first, if that is what the words were about.
+         *
+         * Acting before the answer is displayed so the screen is already
+         * where it should be — asking to open the notepad and then being told
+         * about it is not the same as it opening.
+         */
+        var padSaid = null;
+        if (body.notepad) {
+          padSaid = window.Helix.notepad(body.notepad);
+          if (body.notepad.saved) {
+            padSaid = 'Written down as "' + body.notepad.saved.title + '".';
+          }
+        }
+
         // On screen whether or not it can be spoken. The words are the
         // answer; the voice is only the delivery.
         if (typeof body.answer === 'string' && body.answer !== '') {
           showReply(body.answer, provenance(body));
         } else if (typeof body.answerUnavailable === 'string') {
           showReply(body.answerUnavailable, provenance(body));
+        } else if (padSaid !== null) {
+          // He did the thing but had nothing to say about it — usually
+          // because no model is configured. The action is still real and
+          // still worth stating.
+          showReply(padSaid, provenance(body));
         }
 
         // Nothing to say is not something to say: a kept memory with no
@@ -1075,6 +1444,49 @@
     focusPromptField: function () {
       showPanel('gen-panel');
       el('prompt').focus();
+    },
+    /**
+     * Act on a notepad intent the server recognised.
+     *
+     * The server decides what was meant, from the same words whether they
+     * were spoken or typed; this only carries it out. Returns what happened
+     * so the reply can say it.
+     */
+    notepad: function (intent) {
+      if (intent === null || intent === undefined) return null;
+
+      if (intent.action === 'open') {
+        el('pad-search').value = '';
+        showPanel('pad-panel');
+        return 'Notepad open.';
+      }
+      if (intent.action === 'search') {
+        el('pad-search').value = intent.subject;
+        showPanel('pad-panel');
+        return intent.subject === ''
+          ? 'Notepad open.'
+          : 'Searching your notes for "' + intent.subject + '".';
+      }
+      if (intent.action === 'export') {
+        showPanel('export-panel');
+        return 'Export ready — choose what to take.';
+      }
+      if (intent.action === 'delete') {
+        // Never done from a sentence. Deleting is one click away with the
+        // note in front of you, and a misheard word must not be able to
+        // remove one.
+        el('pad-search').value = intent.subject;
+        showPanel('pad-panel');
+        return intent.subject === ''
+          ? 'Which note? Open it and delete it there.'
+          : 'Found what matches "' + intent.subject + '". Open the one you mean to delete it.';
+      }
+      if (intent.action === 'create') {
+        showPanel('pad-panel');
+        if (intent.subject === '') return 'Notepad open. New note starts one.';
+        return null; // The server saved it; the reply says so.
+      }
+      return null;
     },
     /** Open the settings screen and put the cursor in the first empty field. */
     openSettings: function () {
