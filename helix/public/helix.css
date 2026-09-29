@@ -1,0 +1,1129 @@
+/*
+ * Helix visual foundation.
+ *
+ * One stylesheet, no build step, no dependencies: the page is served straight
+ * from public/ by express.static, so anything that needed compiling would
+ * need a pipeline that does not exist yet.
+ *
+ * The rules below are split into tokens, primitives, and components. Anything
+ * new in Helix should reach for a primitive (.hx-panel, .hx-field, .hx-btn,
+ * .hx-label) rather than inventing a look, so screens added later match this
+ * one without a second pass.
+ */
+
+/* ------------------------------------------------------------------ tokens */
+
+:root {
+  /* Fixed dark scheme. `light dark` would let the browser recolour form
+     controls and scrollbars out from under a design that assumes black. */
+  color-scheme: dark;
+
+  /* Surfaces climb in near-black steps. The gaps are small on purpose: depth
+     here comes from borders and spacing, not from filled boxes. */
+  --hx-void: #04050700;
+  --hx-bg: #050608;
+  --hx-surface: #080a0d;
+  --hx-surface-raised: #0c0f13;
+
+  /* Interface is white held back by opacity, so one hue covers every weight
+     and nothing drifts blue or warm against the black. */
+  --hx-line: rgb(255 255 255 / 9%);
+  --hx-line-strong: rgb(255 255 255 / 18%);
+  --hx-line-active: rgb(255 255 255 / 34%);
+
+  --hx-text: rgb(255 255 255 / 92%);
+  --hx-text-dim: rgb(255 255 255 / 58%);
+  --hx-text-faint: rgb(255 255 255 / 34%);
+
+  /* The only chromatic token. Errors have to break the monochrome to read as
+     abnormal; it is desaturated so it reports rather than alarms. */
+  --hx-alert: #e8a0a0;
+
+  --hx-font: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --hx-font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, Consolas, monospace;
+
+  /* Technical labels: small, letter-spaced, uppercase, monospace. */
+  --hx-label-size: 0.66rem;
+  --hx-label-tracking: 0.16em;
+
+  --hx-gap: 1rem;
+  --hx-gap-lg: 2rem;
+  --hx-gap-xl: 4rem;
+
+  /* Near-square. A 2px radius reads as machined rather than as a card. */
+  --hx-radius: 2px;
+
+  /* Glow is a wide, very low-alpha halo — visible as a lift off the black,
+     never as a coloured bloom. */
+  --hx-glow: 0 0 24px rgb(255 255 255 / 4%);
+  --hx-glow-focus: 0 0 0 1px rgb(255 255 255 / 22%), 0 0 20px rgb(255 255 255 / 7%);
+
+  --hx-ease: cubic-bezier(0.2, 0, 0.2, 1);
+  --hx-fast: 120ms;
+  --hx-slow: 260ms;
+}
+
+/* --------------------------------------------------------------- structure */
+
+* { box-sizing: border-box; }
+
+html { background: var(--hx-bg); }
+
+body {
+  margin: 0;
+  /* No padding here. The stage is exactly one viewport tall and the sheet is
+     fixed to the foot, so a gutter on the body only pushes the stage past the
+     bottom of the window and puts a scrollbar on a screen that has nothing to
+     scroll. Everything that needs a gutter carries its own. */
+  padding: 0;
+  background: var(--hx-bg);
+  color: var(--hx-text);
+  font: 15px/1.6 var(--hx-font);
+  -webkit-font-smoothing: antialiased;
+
+  /* Two stacked layers, both fixed so they do not scroll with content:
+     a faint overhead glow, then film grain. */
+  position: relative;
+}
+
+/* Grain. An inline SVG turbulence filter rather than an image file: it costs
+   no request, scales to any DPI, and cannot 404. Kept under 4% so it reads as
+   sensor noise and never as texture. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* A single soft light source above the content. Gives the black depth without
+   a gradient anyone would call a gradient. */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: radial-gradient(120% 60% at 50% -10%, rgb(255 255 255 / 5%), transparent 60%);
+}
+
+/* Content sits above both layers. */
+body > * { position: relative; z-index: 1; }
+
+.hx-shell {
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+/* -------------------------------------------------------------- primitives */
+
+/* Small technical label. Used for field labels and any readout caption. */
+.hx-label {
+  display: block;
+  margin-bottom: 0.6rem;
+  color: var(--hx-text-faint);
+  font-family: var(--hx-font-mono);
+  font-size: var(--hx-label-size);
+  letter-spacing: var(--hx-label-tracking);
+  text-transform: uppercase;
+}
+
+/* Panel: a bordered region, not a card. No shadow, no fill beyond a hair of
+   lift, corner ticks instead of a radius to carry the HUD read. */
+.hx-panel {
+  position: relative;
+  padding: var(--hx-gap-lg);
+  background: var(--hx-surface);
+  border: 1px solid var(--hx-line);
+  border-radius: var(--hx-radius);
+}
+
+.hx-panel::before,
+.hx-panel::after {
+  content: '';
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  border: 1px solid var(--hx-line-active);
+  pointer-events: none;
+}
+
+.hx-panel::before { top: -1px; left: -1px; border-right: 0; border-bottom: 0; }
+.hx-panel::after { bottom: -1px; right: -1px; border-left: 0; border-top: 0; }
+
+/* Fields. The native control is kept — only its skin changes — so keyboard
+   behaviour, validation and mobile pickers stay exactly as the browser
+   intends them. */
+.hx-field {
+  width: 100%;
+  padding: 0.65rem 0.75rem;
+  background: var(--hx-void);
+  color: var(--hx-text);
+  border: 1px solid var(--hx-line);
+  border-radius: var(--hx-radius);
+  font: inherit;
+  transition: border-color var(--hx-fast) var(--hx-ease), box-shadow var(--hx-fast) var(--hx-ease);
+}
+
+.hx-field::placeholder { color: var(--hx-text-faint); }
+
+.hx-field:hover { border-color: var(--hx-line-strong); }
+
+.hx-field:focus-visible {
+  outline: none;
+  border-color: var(--hx-line-active);
+  box-shadow: var(--hx-glow-focus);
+}
+
+textarea.hx-field { resize: vertical; min-height: 84px; }
+
+/* The dropdown arrow: drawn, so it is white rather than the platform's. */
+select.hx-field {
+  appearance: none;
+  padding-right: 2rem;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='9' height='6' fill='none' stroke='rgba(255,255,255,0.5)'%3E%3Cpath d='M1 1l3.5 3.5L8 1'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+}
+
+/* Button. Outlined by default; it fills toward white on hover instead of
+   lifting on a shadow. */
+.hx-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.8rem 1rem;
+  background: transparent;
+  color: var(--hx-text);
+  border: 1px solid var(--hx-line-strong);
+  border-radius: var(--hx-radius);
+  font-family: var(--hx-font-mono);
+  font-size: var(--hx-label-size);
+  letter-spacing: var(--hx-label-tracking);
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background-color var(--hx-fast) var(--hx-ease),
+    border-color var(--hx-fast) var(--hx-ease), box-shadow var(--hx-fast) var(--hx-ease),
+    opacity var(--hx-fast) var(--hx-ease);
+}
+
+.hx-btn:hover:not(:disabled) {
+  background: rgb(255 255 255 / 6%);
+  border-color: var(--hx-line-active);
+  box-shadow: var(--hx-glow);
+}
+
+.hx-btn:active:not(:disabled) { background: rgb(255 255 255 / 10%); }
+
+.hx-btn:focus-visible {
+  outline: none;
+  border-color: var(--hx-line-active);
+  box-shadow: var(--hx-glow-focus);
+}
+
+.hx-btn:disabled { opacity: 0.38; cursor: default; }
+
+/* A disabled button means work is in flight. One slow sweep says so without a
+   spinner to keep alive in JS. */
+.hx-btn:disabled::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(100deg, transparent 20%, rgb(255 255 255 / 7%) 50%, transparent 80%);
+  background-size: 250% 100%;
+  animation: hx-sweep 2.4s linear infinite;
+}
+
+.hx-btn { position: relative; overflow: hidden; }
+
+@keyframes hx-sweep {
+  from { background-position: 150% 0; }
+  to { background-position: -150% 0; }
+}
+
+/* Status line. Monospace because it carries machine output, and reserved
+   height so a message appearing does not shift the layout under the cursor. */
+.hx-status {
+  margin-top: var(--hx-gap);
+  min-height: 1.5em;
+  color: var(--hx-text-dim);
+  font-family: var(--hx-font-mono);
+  font-size: 0.74rem;
+  letter-spacing: 0.04em;
+  white-space: pre-wrap;
+}
+
+.hx-status:not(:empty)::before {
+  content: '› ';
+  color: var(--hx-text-faint);
+}
+
+.hx-status.error { color: var(--hx-alert); }
+
+/* ------------------------------------------------------------------ layout */
+
+.hx-row {
+  display: flex;
+  gap: var(--hx-gap);
+  flex-wrap: wrap;
+  margin-top: var(--hx-gap-lg);
+}
+
+.hx-row > * { flex: 1 1 130px; }
+
+/* ----------------------------------------------------------------- results */
+
+.hx-result:not(:empty) { margin-top: var(--hx-gap-lg); }
+
+.hx-result img {
+  display: block;
+  width: 100%;
+  border: 1px solid var(--hx-line);
+  border-radius: var(--hx-radius);
+  /* Fades in rather than snapping, which is the one place a slow animation
+     earns its keep: the image arrives after a long wait. */
+  animation: hx-fade var(--hx-slow) var(--hx-ease) both;
+}
+
+@keyframes hx-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.hx-meta {
+  margin-top: 0.75rem;
+  color: var(--hx-text-faint);
+  font-family: var(--hx-font-mono);
+  font-size: var(--hx-label-size);
+  letter-spacing: 0.08em;
+}
+
+a {
+  color: var(--hx-text-dim);
+  text-decoration: none;
+  border-bottom: 1px solid var(--hx-line-strong);
+  transition: color var(--hx-fast) var(--hx-ease), border-color var(--hx-fast) var(--hx-ease);
+}
+
+a:hover { color: var(--hx-text); border-color: var(--hx-line-active); }
+
+/* ------------------------------------------------------------ adaptations */
+
+::selection { background: rgb(255 255 255 / 16%); }
+
+@media (max-width: 640px) {
+  :root { --hx-gap-lg: 1.35rem; --hx-gap-xl: 2.25rem; }
+
+  /* 16px keeps iOS Safari from zooming the page in on focus, and the taller
+     padding brings every control up to a 44px tap target. */
+  .hx-field { font-size: 16px; padding: 0.75rem; }
+  select.hx-field { height: 48px; }
+  .hx-btn { padding: 0.95rem 1rem; }
+}
+
+/* Someone who has asked for less motion gets none of it. The disabled-button
+   sweep is the only state that carried information, and the opacity drop
+   already carries it. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* A forced-colours user gets the system's palette; the grain and the glow are
+   decoration and would only fight it. */
+@media (forced-colors: active) {
+  body::before, body::after { display: none; }
+  .hx-panel::before, .hx-panel::after { display: none; }
+}
+
+/* ================================================================== stage ==
+ *
+ * The main screen. One focal point — the galaxy — and almost nothing else:
+ * the wordmark with a single line of state at the centre, the subsystem dots
+ * and the way into the console along the foot. Controls are in a sheet that is
+ * shut until asked for.
+ */
+
+.hx-main {
+  /* The stage owns the viewport; the console sits under it and scrolls in. */
+  padding: 0;
+  max-width: none;
+}
+
+.hx-stage {
+  position: relative;
+  /* The sphere is the screen. Nothing sits below it now, so it takes the
+     viewport: the sheet is an overlay, not a rail underneath. svh is the
+     honest height on a phone, where vh counts the space under the browser's
+     own chrome and would hide the HUD row behind it. */
+  height: 100vh;
+  height: 100svh;
+  min-height: 460px;
+}
+
+/* The canvas fills the stage; the HUD is positioned against it, not the
+   viewport, so the two stay together at any height. */
+#galaxy {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* ------------------------------------------------------------------- HUD */
+
+/*
+ * The whole permanent information layer: one status dot, and the two ways in.
+ * One row along the foot of the stage.
+ *
+ * It was four corner stacks of eleven readouts, then five subsystem dots. All
+ * of it is still measured, and ACTIVITY reports it on request. On the wall it
+ * meant the screen was never quiet, and a number nobody is reading is just
+ * texture.
+ */
+.hx-hud {
+  position: absolute;
+  inset: auto 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--hx-gap);
+  padding: var(--hx-gap-lg);
+  /* The stage is underneath; only the button wants the pointer. */
+  pointer-events: none;
+}
+
+.hx-controls {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  pointer-events: auto;
+}
+
+/* Both controls read the same: a mark, a word, almost no ink. Neither should
+   pull the eye off the sphere until it is wanted. */
+.hx-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0;
+  background: none;
+  border: 0;
+  color: var(--hx-text-faint);
+  cursor: pointer;
+  font-family: var(--hx-font-mono);
+  font-size: var(--hx-label-size);
+  letter-spacing: var(--hx-label-tracking);
+  text-transform: uppercase;
+  transition: color 240ms var(--hx-ease);
+}
+
+.hx-control:hover:not(:disabled) { color: var(--hx-text); }
+
+.hx-control:focus-visible {
+  outline: 1px solid var(--hx-line-active);
+  outline-offset: 4px;
+}
+
+.hx-control:disabled { cursor: default; opacity: 0.45; }
+
+.hx-control__icon {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.2;
+  stroke-linecap: round;
+}
+
+/* The key cap on the command control, and nothing else borrowed from it. */
+.hx-control__key {
+  padding: 0.15rem 0.35rem;
+  border: 1px solid var(--hx-line);
+  font-size: 0.62rem;
+}
+
+/* Lit while the microphone is open, with the same slow pulse the status dot
+   uses — the one place on the screen that says "he is listening" without a
+   word, so it has to be unmistakable and still quiet. */
+#mic[aria-pressed='true'] { color: var(--hx-text); }
+
+/* Nothing is written beside these now, so the hit area has to come from
+   padding rather than from a word. 44px keeps them tappable. */
+.hx-control {
+  min-width: 44px;
+  min-height: 44px;
+  justify-content: center;
+}
+
+#mic[aria-pressed='true'] .hx-control__icon {
+  animation: hx-pulse 2s var(--hx-ease) infinite;
+}
+
+/* The system indicator: one dot. State lives in a data attribute so the
+   script sets one thing and the stylesheet decides how it reads, and the
+   detail lives in its title, one hover away. */
+.hx-signal {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--hx-text-dim);
+  font-family: var(--hx-font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.hx-signal::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--hx-text-faint);
+  flex: none;
+}
+
+/* Live: a lit dot with a slow pulse. Off: unlit, no motion — absence of
+   activity should look like absence of activity. */
+.hx-signal[data-state='on'] { color: var(--hx-text); }
+.hx-signal[data-state='on']::before {
+  background: var(--hx-text);
+  box-shadow: 0 0 8px rgb(255 255 255 / 70%);
+  animation: hx-pulse 3.2s var(--hx-ease) infinite;
+}
+
+.hx-signal[data-state='off']::before { background: rgb(255 255 255 / 20%); }
+
+.hx-signal[data-state='fault'] { color: var(--hx-alert); }
+.hx-signal[data-state='fault']::before { background: var(--hx-alert); }
+
+/*
+ * What Helix is doing, on the same dot.
+ *
+ * This used to be a line of type under the wordmark reading "Listening" or
+ * "Thinking". With the words gone the dot has to carry it, so the stage's
+ * state drives it: a quick pulse while he is listening, a quicker one while
+ * he is thinking, and steady and bright while he is speaking. The rates are
+ * far enough apart to tell by eye without counting.
+ *
+ * Written against the stage rather than the dot because the state belongs to
+ * the screen, not to the indicator — the sphere reads the same attribute.
+ */
+.hx-stage[data-state='listening'] .hx-signal::before,
+.hx-stage[data-state='thinking'] .hx-signal::before {
+  background: var(--hx-text);
+  box-shadow: 0 0 10px rgb(255 255 255 / 80%);
+}
+
+.hx-stage[data-state='listening'] .hx-signal::before {
+  animation: hx-pulse 1.1s var(--hx-ease) infinite;
+}
+
+.hx-stage[data-state='thinking'] .hx-signal::before {
+  animation: hx-pulse 0.55s var(--hx-ease) infinite;
+}
+
+.hx-stage[data-state='speaking'] .hx-signal::before {
+  background: #fff;
+  box-shadow: 0 0 14px rgb(255 255 255 / 95%);
+  animation: none;
+}
+
+/* A vault that would not open. The only colour on the screen, and the reply
+   says what happened in words — a coloured dot is enough to notice something
+   is wrong and not enough to know what. */
+.hx-stage[data-fault='true'] .hx-signal::before {
+  background: var(--hx-alert);
+  box-shadow: 0 0 10px var(--hx-alert);
+}
+
+@keyframes hx-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+/* ---------------------------------------------------------------- notepad */
+
+/* A list of notes: title, when, and the first line. Rules between them rather
+   than cards — a card per note would be a wall of boxes. */
+.hx-pad__list {
+  list-style: none;
+  margin: var(--hx-gap-lg) 0 0;
+  padding: 0;
+}
+
+.hx-pad__row {
+  display: grid;
+  gap: 0.3rem;
+  padding: var(--hx-gap) 0;
+  border-top: 1px solid var(--hx-line);
+  cursor: pointer;
+  transition: opacity 180ms var(--hx-ease);
+}
+
+.hx-pad__row:hover { opacity: 1; }
+.hx-pad__row:not(:hover) { opacity: 0.86; }
+
+.hx-pad__row:focus-visible {
+  outline: 1px solid var(--hx-line-active);
+  outline-offset: 3px;
+}
+
+.hx-pad__row-title {
+  color: var(--hx-text);
+  font-size: 0.98rem;
+}
+
+.hx-pad__row-meta {
+  color: var(--hx-text-faint);
+  font-family: var(--hx-font-mono);
+  font-size: var(--hx-label-size);
+  letter-spacing: var(--hx-label-tracking);
+}
+
+.hx-pad__row-excerpt {
+  color: var(--hx-text-dim);
+  font-size: 0.85rem;
+  line-height: 1.5;
+  /* One line. The note itself is one click away, and a list where every row
+     is a paragraph is not a list. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* One note, open. */
+.hx-pad__note { margin-top: var(--hx-gap-lg); }
+
+.hx-pad__title {
+  font-size: 1.05rem;
+  margin-bottom: var(--hx-gap);
+}
+
+.hx-pad__body {
+  min-height: 34vh;
+  line-height: 1.7;
+  margin-bottom: var(--hx-gap);
+  resize: vertical;
+}
+
+.hx-pad__note .hx-field + .hx-field { margin-bottom: var(--hx-gap); }
+
+/* Quieter and louder buttons, for a row that has both a save and a delete. */
+.hx-btn--slim { flex: 0 0 auto; padding-left: 1.2rem; padding-right: 1.2rem; }
+.hx-btn--quiet { opacity: 0.7; }
+.hx-btn--quiet:hover:not(:disabled) { opacity: 1; }
+
+.hx-btn--danger { border-color: rgb(232 160 160 / 45%); color: var(--hx-alert); }
+.hx-btn--danger:hover:not(:disabled) {
+  border-color: var(--hx-alert);
+  background: rgb(232 160 160 / 8%);
+}
+
+/* ----------------------------------------------------------------- export */
+
+/* One line per thing you could take, and what it holds. */
+.hx-choice {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  padding: var(--hx-gap) 0;
+  border-top: 1px solid var(--hx-line);
+  cursor: pointer;
+}
+
+.hx-choice input { margin-top: 0.3rem; accent-color: #fff; }
+
+.hx-choice__label {
+  display: block;
+  color: var(--hx-text);
+}
+
+.hx-choice__says {
+  display: block;
+  margin-top: 0.25rem;
+  color: var(--hx-text-faint);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+/* ------------------------------------------------------------------- keys */
+
+/* A field, what it is for, and a way to empty it. */
+.hx-key + .hx-key { margin-top: var(--hx-gap-lg); }
+
+.hx-key__group {
+  margin: var(--hx-gap-xl) 0 var(--hx-gap);
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--hx-line);
+  color: var(--hx-text-dim);
+  font-family: var(--hx-font-mono);
+  font-size: var(--hx-label-size);
+  letter-spacing: var(--hx-label-tracking);
+  text-transform: uppercase;
+}
+
+.hx-key__group:first-child { margin-top: 0; }
+
+.hx-key__line {
+  display: flex;
+  gap: 0.75rem;
+  align-items: stretch;
+}
+
+.hx-key__line .hx-field { flex: 1; }
+
+/* Deliberately quiet, and deliberately not destructive on its own: it marks
+   the field, and nothing happens until Save. */
+.hx-key__clear {
+  flex: none;
+  padding: 0 0.9rem;
+  background: none;
+  border: 1px solid var(--hx-line);
+  color: var(--hx-text-faint);
+  cursor: pointer;
+  font-family: var(--hx-font-mono);
+  font-size: var(--hx-label-size);
+  letter-spacing: var(--hx-label-tracking);
+  text-transform: uppercase;
+}
+
+.hx-key__clear:hover { color: var(--hx-text); border-color: var(--hx-line-strong); }
+
+.hx-key[data-clear='true'] .hx-key__clear {
+  color: var(--hx-alert);
+  border-color: var(--hx-alert);
+}
+
+.hx-key[data-clear='true'] .hx-field { opacity: 0.4; }
+
+/* Where the file is. Wants room under it: the first group heading has no top
+   margin, so without this it sits flush against this line. */
+#keys-note { margin: 0 0 var(--hx-gap-lg); }
+
+/* The line under a field saying what it buys. The dimmest type in the sheet. */
+.hx-note {
+  margin: 0.5rem 0 0;
+  color: var(--hx-text-faint);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+/* ------------------------------------------------------------ the centre */
+
+/* Holds the reply, and nothing else. The wordmark and the state line that
+   used to live here are gone; what they said is on the dot at the foot and in
+   how hard the sphere is turning. */
+.hx-core {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  translate: -50% -50%;
+  width: min(90vw, 40rem);
+  text-align: center;
+  /* The block is wide enough to hold a reply, so it must not sit between the
+     pointer and the sphere. Only the reply itself takes the pointer back. */
+  pointer-events: none;
+}
+
+/*
+ * What he said.
+ *
+ * Sits under the state line, in the reading face rather than the mono one:
+ * this is the only prose on the screen and it should not look like a readout.
+ * Narrow on purpose — a measure this short is what keeps a long answer from
+ * spanning the sphere.
+ */
+.hx-reply {
+  max-width: 34ch;
+  margin: 0 auto;
+  cursor: pointer;
+  pointer-events: auto;
+  animation: hx-reply-in 420ms var(--hx-ease);
+}
+
+.hx-reply[hidden] { display: none; }
+
+.hx-reply__text {
+  margin: var(--hx-gap) 0 0;
+  color: var(--hx-text);
+  font-size: 1rem;
+  line-height: 1.7;
+  /* Dark halo, like the wordmark: this sits over the densest part of the
+     shell and dissolves into it without one. */
+  text-shadow: 0 0 12px rgb(0 0 0 / 92%), 0 0 4px rgb(0 0 0 / 92%);
+  text-wrap: balance;
+}
+
+/* Provenance. Deliberately the dimmest type on the screen — it is there to be
+   checked, not read. */
+.hx-reply__note {
+  margin: 0.9rem 0 0;
+  color: var(--hx-text-faint);
+  font-family: var(--hx-font-mono);
+  font-size: var(--hx-label-size);
+  letter-spacing: var(--hx-label-tracking);
+  text-shadow: 0 0 10px rgb(0 0 0 / 92%);
+}
+
+.hx-reply__note[hidden] { display: none; }
+
+@keyframes hx-reply-in {
+  from { opacity: 0; translate: 0 6px; }
+  to { opacity: 1; translate: 0 0; }
+}
+
+/* ------------------------------------------------------------------- sheet */
+
+/*
+ * The note and generate controls, in a sheet against the foot of the screen.
+ *
+ * Shut by default. A tab strip holding one of them permanently open put a form
+ * on the screen at all times to save a click the console already saves, and it
+ * cost the composition its quiet.
+ */
+.hx-sheet {
+  position: fixed;
+  inset: auto 0 0;
+  z-index: 2;
+  max-height: 72vh;
+  overflow-y: auto;
+  padding: var(--hx-gap-lg) var(--hx-gap) var(--hx-gap-xl);
+  background: var(--hx-bg);
+  border-top: 1px solid var(--hx-line);
+  animation: hx-sheet-in 220ms var(--hx-ease);
+}
+
+.hx-sheet[hidden] { display: none; }
+
+@keyframes hx-sheet-in {
+  from { opacity: 0; translate: 0 8px; }
+  to { opacity: 1; translate: 0 0; }
+}
+
+.hx-sheet__head,
+.hx-sheet > .hx-panel {
+  max-width: 860px;
+  margin: 0 auto;
+}
+
+.hx-sheet__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--hx-gap-lg);
+}
+
+.hx-sheet__close {
+  background: none;
+  border: 1px solid var(--hx-line);
+  color: var(--hx-text-faint);
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  font-family: var(--hx-font-mono);
+  font-size: var(--hx-label-size);
+  letter-spacing: var(--hx-label-tracking);
+  text-transform: uppercase;
+}
+
+.hx-sheet__close:hover { color: var(--hx-text); border-color: var(--hx-line-strong); }
+
+/* Panels in the sheet carry no box of their own — the sheet's own top rule
+   already bounds them, and a border inside a border reads as a card. */
+.hx-sheet .hx-panel {
+  padding: 0;
+  background: none;
+  border: 0;
+}
+
+.hx-sheet .hx-panel::before, .hx-sheet .hx-panel::after { display: none; }
+
+/* -------------------------------------------------------------- responsive */
+
+@media (max-width: 820px) {
+  .hx-hud { padding: var(--hx-gap); gap: 0.5rem; }
+}
+
+@media (max-width: 560px) {
+  /* Five dots and a button will not sit on one line here. The dots wrap and
+     the button goes under them, which is the whole adaptation — there is
+     nothing else at the edges left to rearrange. */
+  .hx-hud {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.9rem;
+  }
+
+  .hx-reply { max-width: none; }
+  .hx-reply__text { font-size: 0.95rem; }
+}
+
+/* ==================================================================== HUD ==
+ *
+ * The information layer, and there is almost nothing of it. Two tiers, and
+ * only one of them is made of words:
+ *
+ *   reply   .hx-reply    what he said, until it has been read
+ *   state   .hx-signal   one dot: idle, listening, thinking, speaking, fault
+ *
+ * The dot is driven off the stage's data-state, so the state lives in one
+ * place and the sphere reads the same attribute.
+ *
+ * Anything that cannot be measured does not get a place on the screen, and
+ * most of what can be measured does not either — it is one ACTIVITY away. At
+ * rest the screen is the sphere, a dot and two glyphs; a reply is the only
+ * thing that ever writes on it.
+ */
+
+/* --------------------------------------------------------- activity line */
+
+/* A hairline across the foot of the stage while a request is in flight. It is
+   an activity indicator, not a progress bar: the server answers these in one
+   shot and reports no fraction, so a filling bar would be inventing a number. */
+.hx-activity {
+  position: absolute;
+  inset: auto 0 0;
+  height: 1px;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.hx-activity[hidden] { display: none; }
+
+.hx-activity::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 35%;
+  height: 1px;
+  background: linear-gradient(to right, transparent, var(--hx-text), transparent);
+  animation: hx-activity-run 1.4s var(--hx-ease) infinite;
+}
+
+@keyframes hx-activity-run {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(386%); }
+}
+
+/* ================================================================ console ==
+ *
+ * The command console. Same language as the rest: black, hairlines, white
+ * type, one glow. It sits above everything, so it is the only surface here
+ * with a scrim behind it.
+ */
+
+.hx-cmd {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  justify-content: center;
+  /* High rather than centred: the list grows downward, and a centred panel
+     would jump as results appear. */
+  align-items: flex-start;
+  padding: 12vh var(--hx-gap) var(--hx-gap);
+}
+
+.hx-cmd[hidden] { display: none; }
+
+.hx-cmd__scrim {
+  position: absolute;
+  inset: 0;
+  background: rgb(0 0 0 / 72%);
+  animation: hx-fade var(--hx-fast) var(--hx-ease) both;
+}
+
+.hx-cmd__panel {
+  position: relative;
+  width: min(620px, 100%);
+  background: var(--hx-surface-raised);
+  border: 1px solid var(--hx-line-strong);
+  border-radius: var(--hx-radius);
+  box-shadow: 0 0 60px rgb(0 0 0 / 80%), 0 0 0 1px rgb(255 255 255 / 4%),
+    0 0 40px rgb(255 255 255 / 5%);
+  animation: hx-cmd-in 160ms var(--hx-ease) both;
+}
+
+@keyframes hx-cmd-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ------------------------------------------------------------------ input */
+
+.hx-cmd__head {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.9rem 1rem;
+  border-bottom: 1px solid var(--hx-line);
+}
+
+.hx-cmd__prompt {
+  color: var(--hx-text-faint);
+  font-family: var(--hx-font-mono);
+  font-size: 0.85rem;
+}
+
+.hx-cmd__input {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: 0;
+  color: var(--hx-text);
+  font: inherit;
+  font-size: 0.95rem;
+}
+
+.hx-cmd__input:focus { outline: none; }
+.hx-cmd__input::placeholder { color: var(--hx-text-faint); }
+
+/* ------------------------------------------------------------------ rows */
+
+.hx-cmd__list {
+  margin: 0;
+  padding: 0.35rem 0;
+  list-style: none;
+  max-height: 46vh;
+  overflow-y: auto;
+}
+
+.hx-cmd__row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+}
+
+/* Selection is a left marker and a lift in the background, not a fill: a
+   solid bar would be the brightest thing on a screen built out of hairlines. */
+.hx-cmd__row.is-active {
+  background: rgb(255 255 255 / 5%);
+  box-shadow: inset 2px 0 0 var(--hx-text);
+}
+
+.hx-cmd__row--empty {
+  color: var(--hx-text-faint);
+  cursor: default;
+  font-family: var(--hx-font-mono);
+  font-size: 0.74rem;
+  letter-spacing: 0.08em;
+}
+
+.hx-cmd__label {
+  color: var(--hx-text);
+  font-family: var(--hx-font-mono);
+  font-size: 0.78rem;
+  letter-spacing: 0.1em;
+  white-space: nowrap;
+}
+
+.hx-cmd__hint {
+  flex: 1;
+  min-width: 0;
+  color: var(--hx-text-faint);
+  font-size: 0.76rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The kind of thing a row is. NET is the one that matters: it says the row
+   will go out to the network rather than answer from what is already here. */
+.hx-cmd__tag {
+  flex: none;
+  padding: 0.1rem 0.35rem;
+  border: 1px solid var(--hx-line);
+  border-radius: var(--hx-radius);
+  color: var(--hx-text-faint);
+  font-family: var(--hx-font-mono);
+  font-size: 0.56rem;
+  letter-spacing: 0.14em;
+}
+
+.hx-cmd__row.is-active .hx-cmd__tag { border-color: var(--hx-line-active); color: var(--hx-text-dim); }
+
+/* ---------------------------------------------------------------- output */
+
+.hx-cmd__out {
+  padding: 0.85rem 1rem;
+  border-top: 1px solid var(--hx-line);
+  max-height: 30vh;
+  overflow-y: auto;
+}
+
+.hx-cmd__out[hidden] { display: none; }
+
+.hx-cmd__line {
+  color: var(--hx-text-dim);
+  font-family: var(--hx-font-mono);
+  font-size: 0.72rem;
+  line-height: 1.8;
+  letter-spacing: 0.04em;
+  white-space: pre-wrap;
+}
+
+.hx-cmd__line--bad { color: var(--hx-alert); }
+
+.hx-cmd__link {
+  display: inline-block;
+  margin-top: 0.4rem;
+  font-family: var(--hx-font-mono);
+  font-size: 0.68rem;
+  word-break: break-all;
+}
+
+
+/* ------------------------------------------------------------- open button */
+
+/* The only affordance advertising the console, and now the only button on the
+   main screen. It sits at the foot of the stage opposite the subsystem dots,
+   and the lower corners are dropped at phone widths where a visible way in
+   matters most — there may be no keyboard to press Ctrl+K on. */
+.hx-cmd-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.7rem 0;
+  background: none;
+  border: 0;
+  color: var(--hx-text-faint);
+  font-family: var(--hx-font-mono);
+  font-size: var(--hx-label-size);
+  letter-spacing: var(--hx-label-tracking);
+  text-transform: uppercase;
+  cursor: pointer;
+  pointer-events: auto; /* The HUD row around it does not take the pointer. */
+  transition: color var(--hx-fast) var(--hx-ease);
+}
+
+.hx-cmd-open:hover { color: var(--hx-text); }
+
+.hx-cmd-open:focus-visible {
+  outline: none;
+  color: var(--hx-text);
+  box-shadow: 0 0 0 1px var(--hx-line-active);
+}
+
+.hx-cmd-open__key {
+  padding: 0.12rem 0.3rem;
+  border: 1px solid var(--hx-line);
+  border-radius: var(--hx-radius);
+}
+
+@media (max-width: 560px) {
+  .hx-cmd { padding: 6vh 0.75rem 0.75rem; }
+  .hx-cmd__hint { display: none; }
+}

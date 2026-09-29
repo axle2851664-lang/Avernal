@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Helix</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+<link rel="stylesheet" href="/helix.css" />
+
+<!-- Installable as an app. The colours match the page so the window chrome
+     and the splash screen do not flash white on the way in. -->
+<link rel="manifest" href="/manifest.webmanifest" />
+<meta name="theme-color" content="#050608" />
+<!-- iOS reads none of the manifest: it wants its own tags, and it wants a
+     PNG. Without these a home-screen Helix opens in a Safari window with a
+     white status bar and a screenshot for an icon. -->
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Helix" />
+<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+</head>
+<body>
+<!--
+  One screen, one focal point, and no words on it.
+
+  Permanently on it: the sphere, one status dot, and two glyphs — voice and
+  the command console. Nothing is written. What Helix is doing is carried by
+  the dot and by how hard the sphere is turning; what the two controls do is
+  carried by their shapes, their titles and their aria-labels.
+
+  The one exception is a reply, which is the answer itself: it appears in the
+  middle, and leaves again once it has been read.
+
+  The counts, clock, latency, uptime and per-subsystem states are all still
+  measured; ACTIVITY in the console reports them.
+-->
+<main class="hx-shell hx-main">
+
+  <div class="hx-stage" id="stage" data-state="idle">
+    <!-- The galaxy. Decorative to a screen reader: it encodes the shape of
+         the vault, and the counts behind it are read out by ACTIVITY. -->
+    <canvas id="galaxy" aria-hidden="true"></canvas>
+
+    <div class="hx-core">
+      <!-- The only words on this screen, and only while there are any: what
+           Helix said, and where it came from. Everything else that used to be
+           written here — the wordmark, the state line, the labels on the two
+           controls — is carried by the dot, the sphere and the shapes now.
+           The live region is what keeps a screen reader told. -->
+      <div class="hx-reply" id="reply" role="status" aria-live="polite" hidden>
+        <p class="hx-reply__text" id="reply-text"></p>
+        <p class="hx-reply__note" id="reply-note" hidden></p>
+      </div>
+    </div>
+
+    <!-- Status on one side, the two ways in on the other. That is the whole
+         permanent interface, and none of it is a word. -->
+    <div class="hx-hud">
+      <!-- The dot carries the state now: dim at rest, pulsing while he is
+           listening or thinking, lit while speaking, coloured on a fault.
+           What it cannot say is in its title, one hover away. -->
+      <span class="hx-signal" id="system" data-state="unknown" title="Connecting"></span>
+
+      <div class="hx-controls">
+        <button type="button" class="hx-control" id="mic" aria-pressed="false" aria-label="Speak to Helix" title="Speak to Helix">
+          <svg class="hx-control__icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+            <rect x="6" y="2" width="4" height="8" rx="2" />
+            <path d="M3.5 8a4.5 4.5 0 0 0 9 0M8 12.5V14" />
+          </svg>
+        </button>
+
+        <button type="button" class="hx-control" id="cmd-open" aria-label="Open the command console (Ctrl K)" title="Command console — Ctrl K">
+          <svg class="hx-control__icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+            <path d="M2.5 4L6 8l-3.5 4M8 12h5.5" />
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="hx-activity" id="activity" hidden aria-hidden="true"></div>
+  </div>
+
+  <!-- The controls. Out of the way until asked for, by OPEN NOTE / OPEN
+       GENERATE in the console or by the button above. -->
+  <div class="hx-sheet" id="sheet" hidden>
+    <div class="hx-sheet__head">
+      <span class="hx-label" id="sheet-title">Note</span>
+      <button type="button" class="hx-sheet__close" id="sheet-close" aria-label="Close">Esc</button>
+    </div>
+
+    <section class="hx-panel" id="note-panel">
+      <label class="hx-label" for="note">Capture to vault</label>
+      <textarea class="hx-field" id="note" placeholder="Anything you want to remember."></textarea>
+      <div class="hx-row">
+        <button class="hx-btn" id="save">Save to vault</button>
+      </div>
+      <div class="hx-status" id="note-status"></div>
+    </section>
+
+    <!-- The notepad. In the sheet like everything else, so the core screen
+         gains nothing permanent for it and Esc always means "back to the
+         sphere". -->
+    <section class="hx-panel" id="pad-panel" hidden>
+      <div class="hx-row">
+        <input class="hx-field" id="pad-search" type="search" autocomplete="off"
+               spellcheck="false" placeholder="Search notes" aria-label="Search notes" />
+        <button class="hx-btn hx-btn--slim" id="pad-new" type="button">New note</button>
+      </div>
+      <p class="hx-note" id="pad-count"></p>
+      <ul class="hx-pad__list" id="pad-list"></ul>
+
+      <!-- One note, open. Hidden until a note is picked. -->
+      <div class="hx-pad__note" id="pad-note" hidden>
+        <input class="hx-field hx-pad__title" id="pad-title" autocomplete="off"
+               aria-label="Note title" />
+        <textarea class="hx-field hx-pad__body" id="pad-body" aria-label="Note"></textarea>
+        <input class="hx-field" id="pad-tags" autocomplete="off"
+               placeholder="Tags, separated by commas" aria-label="Tags" />
+        <div class="hx-row">
+          <button class="hx-btn" id="pad-save" type="button">Save</button>
+          <button class="hx-btn hx-btn--quiet" id="pad-back" type="button">Back to notes</button>
+          <button class="hx-btn hx-btn--danger" id="pad-delete" type="button">Delete</button>
+        </div>
+        <p class="hx-note" id="pad-meta"></p>
+      </div>
+      <div class="hx-status" id="pad-status"></div>
+    </section>
+
+    <!-- Taking it all with you. -->
+    <section class="hx-panel" id="export-panel" hidden>
+      <p class="hx-note" id="export-intro">Reading what Helix holds…</p>
+      <div id="export-choices"></div>
+      <div class="hx-row">
+        <button class="hx-btn" id="export-go" type="button">Download</button>
+      </div>
+      <div class="hx-status" id="export-status"></div>
+    </section>
+
+    <!-- Keys. In the sheet with everything else, so the main screen gains
+         nothing permanent for it. Built from /settings at open time rather
+         than written out here: the server owns what is settable, and two
+         lists would drift. -->
+    <section class="hx-panel" id="keys-panel" hidden>
+      <p class="hx-note" id="keys-note">Reading settings…</p>
+      <form id="keys-form" autocomplete="off"></form>
+      <div class="hx-row">
+        <button class="hx-btn" id="keys-save" type="button">Save keys</button>
+      </div>
+      <div class="hx-status" id="keys-status"></div>
+    </section>
+
+    <section class="hx-panel" id="gen-panel" hidden>
+      <label class="hx-label" for="prompt">Prompt</label>
+      <textarea class="hx-field" id="prompt" placeholder="a lighthouse on a cliff at dusk">a lighthouse on a cliff at dusk</textarea>
+
+      <div class="hx-row">
+        <div>
+          <label class="hx-label" for="mode">Type</label>
+          <select class="hx-field" id="mode">
+            <option value="image">Image</option>
+            <option value="video">Video (GIF)</option>
+          </select>
+        </div>
+        <div>
+          <label class="hx-label" for="steps">Steps</label>
+          <input class="hx-field" id="steps" type="number" value="20" min="1" max="100" />
+        </div>
+        <div>
+          <label class="hx-label" for="seed">Seed — blank is random</label>
+          <input class="hx-field" id="seed" type="number" placeholder="random" />
+        </div>
+      </div>
+
+      <div class="hx-row">
+        <button class="hx-btn" id="go">Generate</button>
+      </div>
+      <div class="hx-status" id="status"></div>
+      <div class="hx-result" id="result"></div>
+    </section>
+  </div>
+
+</main>
+
+<div class="hx-cmd" id="cmd" hidden>
+  <div class="hx-cmd__scrim" id="cmd-scrim"></div>
+  <div class="hx-cmd__panel" role="dialog" aria-modal="true" aria-label="Command console">
+    <div class="hx-cmd__head">
+      <span class="hx-cmd__prompt" aria-hidden="true">&gt;</span>
+      <input
+        class="hx-cmd__input"
+        id="cmd-input"
+        type="text"
+        autocomplete="off"
+        autocapitalize="off"
+        spellcheck="false"
+        aria-label="Command"
+      />
+    </div>
+    <ul class="hx-cmd__list" id="cmd-list" role="listbox" aria-label="Results"></ul>
+    <div class="hx-cmd__out" id="cmd-out" hidden></div>
+  </div>
+</div>
+
+<script src="/sw-register.js"></script>
+<script src="/galaxy.js"></script>
+<script src="/app.js"></script>
+<script src="/console.js"></script>
+</body>
+</html>
